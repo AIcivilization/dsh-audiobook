@@ -19,6 +19,8 @@ function fakeCtx() {
   const services = {
     webServer: { routes: [], register(r) { this.routes.push(r); return () => {} } },
     tools: { defs: [], register(d) { this.defs.push(d); return () => {} } },
+    // 假的 DSH 网页搜索
+    web: { async search(req) { return { sources: [{ url: 'https://example.com/a', title: `结果：${req.query}`, snippet: '摘要' }, { url: 'https://example.com/b' }] } } },
     // 假的 DSH 信任围栏：带 x-deny 头的请求当成没登录
     connection: { requestRejection: req => (req.headers['x-deny'] ? 401 : undefined) },
   }
@@ -130,6 +132,20 @@ test('书单、一本书、进度（越界夹住）', async () => {
   // 最近听的排第一
   assert.equal((await get('books')).body.books[0].id, bookId)
   assert.equal((await get('book?id=../etc')).status, 400)
+})
+
+test('常规网页搜索：走 DSH 的网页搜索，只返回链接', async () => {
+  const r = await get(`websearch?q=${encodeURIComponent('围城')}`)
+  assert.equal(r.body.available, true)
+  assert.deepEqual(r.body.results, [{ title: '结果：围城', url: 'https://example.com/a', snippet: '摘要' }, { title: 'https://example.com/b', url: 'https://example.com/b', snippet: '' }])
+  assert.equal((await get('websearch?q=')).status, 400)
+  // 自定义地址存在设置里
+  const bad = await post('settings', { customSources: [{ name: 'x', url: 'https://a.com/' }] })
+  assert.equal(bad.status, 400)
+  const ok = await post('settings', { customSources: [{ name: '豆瓣', url: 'https://search.douban.com/book/subject_search?search_text={q}' }] })
+  assert.equal(ok.body.settings.customSources[0].name, '豆瓣')
+  assert.equal((await post('download', { source: 'opds', ref: 'http://x/y.epub', catalog: 'nope' })).status, 400)
+  await post('settings', { customSources: 'default' })
 })
 
 test('设置：只收认得的值', async () => {

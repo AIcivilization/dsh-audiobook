@@ -145,3 +145,63 @@ test('下载：维基文库导出的书清理后进书架，再下一次还是�
   await assert.rejects(importFromSource('nope', 'x'), /不认识的书源/)
   assert.equal(calls.length, before)
 })
+
+// ———————————————————— 自定义搜索地址 ————————————————————
+
+const { normalizeCustom, parseOpds, searchOpds, DEFAULT_WEB } = await import('../lib/custom.js')
+const { getSettings, saveSettings } = await import('../lib/store.js')
+
+test('自定义地址：要有名字、http(s)、{q}；最多 20 个；id 不重复', () => {
+  const out = normalizeCustom([{ name: '豆瓣', url: 'https://search.douban.com/book/subject_search?search_text={q}' }, { name: '书库', url: 'http://192.168.1.5:8080/opds/search/{q}', kind: 'opds', id: 'c0' }, { name: 'x', url: 'https://a.com/{q}', id: 'c0' }])
+  assert.deepEqual(out.map(x => [x.id, x.kind]), [['c0', 'web'], ['c0x', 'opds'], ['c0xx', 'web']])
+  assert.throws(() => normalizeCustom([{ name: '', url: 'https://a.com/{q}' }]), /没有名字/)
+  assert.throws(() => normalizeCustom([{ name: 'a', url: 'https://a.com/' }]), /\{q\}/)
+  assert.throws(() => normalizeCustom([{ name: 'a', url: 'file:///etc/{q}' }]), /http/)
+  assert.throws(() => normalizeCustom(Array.from({ length: 21 }, (_, k) => ({ name: `n${k}`, url: 'https://a.com/{q}' }))), /最多 20/)
+})
+
+test('设置：没自定义过给默认的网页搜索；恢复默认存成 null', async () => {
+  assert.deepEqual((await getSettings()).customSources, DEFAULT_WEB)
+  const s = await saveSettings({ customSources: [{ name: '书库', url: 'http://lib.example/opds/search/{q}', kind: 'opds' }] })
+  assert.equal(s.customSources.length, 1)
+  assert.equal((await getSettings()).customSources[0].kind, 'opds')
+  const d = await saveSettings({ customSources: 'default' })
+  assert.deepEqual(d.customSources, DEFAULT_WEB)
+})
+
+const LIB = { id: 'lib', name: '我的书库', kind: 'opds', url: 'http://lib.example/opds/search/{q}' }
+const OPDS_FEED = `<feed><entry><title>围城</title><author><name>钱钟书</name></author>
+  <link rel="http://opds-spec.org/acquisition" type="application/pdf" href="/get/pdf/7"/>
+  <link rel="http://opds-spec.org/acquisition" type="application/epub+zip" href="/get/epub/7"/></entry>
+  <entry><title>只有封面</title><link rel="http://opds-spec.org/image" href="/c.jpg"/></entry></feed>`
+
+test('OPDS：挑能读的下载链接（EPUB 优先），补全成绝对地址', () => {
+  const r = parseOpds(OPDS_FEED, 'http://lib.example/opds/search/x', LIB)
+  assert.deepEqual(r.map(x => [x.title, x.author, x.ref, x.ext, x.sourceLabel]), [['围城', '钱钟书', 'http://lib.example/get/epub/7', '.epub', '我的书库']])
+})
+
+test('OPDS：搜自己的书库、下载进书架；别的域名的地址不下', async () => {
+  const prev = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    const u = String(url)
+    if (u.startsWith('http://lib.example/opds/search/')) return new Response(OPDS_FEED)
+    if (u === 'http://lib.example/get/epub/7') {
+      return new Response(makeEpub({ title: '围城', author: '钱钟书', chapters: [{ toc: '一', html: '<p>红海早过了，船在印度洋面上开驶着。</p>' }] }),
+        { headers: { 'content-type': 'application/epub+zip', 'content-disposition': 'attachment; filename="weicheng.epub"' } })
+    }
+    if (u.startsWith('http://down.example')) return new Response('', { status: 500 })
+    return prev(url, init)
+  }
+  try {
+    const found = await searchOpds([LIB, DEFAULT_WEB[0]], '围城')
+    assert.equal(found.results.length, 1)
+    await saveSettings({ customSources: [LIB] })
+    const b = await importFromSource('opds', found.results[0].ref, { catalog: LIB, title: '围城' })
+    assert.equal(b.title, '围城')
+    assert.equal(b.author, '钱钟书')
+    await assert.rejects(importFromSource('opds', 'http://evil.example/x.epub', { catalog: LIB }), /只能下载这个书库自己的书/)
+    // 搜书时 OPDS 结果直接留着（书库自己按书名搜过了）
+    const r = await findBooks('围城', { catalogs: [LIB] })
+    assert.equal(r.results[0].source, 'opds')
+  } finally { globalThis.fetch = prev }
+})

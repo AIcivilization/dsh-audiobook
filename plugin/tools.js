@@ -10,7 +10,7 @@
 import { findBooks } from '../lib/finder.js'
 import { importDocument, importFromSource } from '../lib/importer.js'
 import { SOURCES } from '../lib/sources.js'
-import { chapterOf, checkId, getBook, getProgress, getSegs, listBooks, setProgress } from '../lib/store.js'
+import { chapterOf, checkId, getBook, getProgress, getSegs, getSettings, listBooks, setProgress } from '../lib/store.js'
 
 const ANY_OBJECT = { type: 'object' }
 
@@ -62,7 +62,7 @@ export async function buildToolDefinitions() {
   return [
     {
       name: 'audiobook_search',
-      description: '在公版书和授权免费的书源里搜书：古腾堡计划（7 万多本公版书，英文为主，也有中文古籍）、中文 / 英文维基文库（公版古籍、民国作品）。' +
+      description: '在公版书和授权免费的书源里搜书：古腾堡计划（7 万多本公版书，英文为主，也有中文古籍）、中文 / 英文维基文库（公版古籍、民国作品），以及用户自己配置的 OPDS 书库。' +
         '用户只记得角色名或情节时，先自己判断是哪本书，再用书名搜；中文古籍可以再用繁体书名搜一次（古腾堡收的多是繁体）。' +
         '受版权保护的现代书这里搜不到，照实告诉用户，建议买正版电子书后用 audiobook_import 导入。找到后用 audiobook_download 下载。',
       parameters: params({
@@ -73,12 +73,12 @@ export async function buildToolDefinitions() {
         render: (_a, v) => [{
           type: 'text',
           text: v.results.length
-            ? v.results.map(r => `- 《${r.title}》${r.author ? ` ${r.author}` : ''} [${r.sourceLabel}] source=${r.source} ref=${r.ref}${r.snippet ? `：${r.snippet}` : ''}`).join('\n')
+            ? v.results.map(r => `- 《${r.title}》${r.author ? ` ${r.author}` : ''} [${r.sourceLabel}] source=${r.source} ref=${r.ref}${r.catalog ? ` catalog=${r.catalog}` : ''}${r.snippet ? `：${r.snippet}` : ''}`).join('\n')
             : `没搜到「${v.query}」。这些书源只有公版书和授权免费的书。` + (v.failed.length ? `（${v.failed.join('、')}暂时连不上）` : ''),
         }],
       },
       async execute(args) {
-        const r = await findBooks(String(args.query || ''))
+        const r = await findBooks(String(args.query || ''), { catalogs: (await getSettings()).customSources })
         return plain({ ...r, results: r.results.slice(0, 12) })
       },
     },
@@ -87,7 +87,8 @@ export async function buildToolDefinitions() {
       name: 'audiobook_download',
       description: '把 audiobook_search 搜到的一本书下载进「搜书听」书架，下载完就能在右侧栏听。维基文库的整部大书导出可能要一两分钟。',
       parameters: params({
-        source: { type: 'string', required: true, enum: Object.keys(SOURCES), description: 'audiobook_search 结果里的 source' },
+        source: { type: 'string', required: true, enum: [...Object.keys(SOURCES), 'opds'], description: 'audiobook_search 结果里的 source' },
+        catalog: { type: 'string', description: 'source=opds 时，audiobook_search 结果里的 catalog' },
         ref: { type: 'string', required: true, description: 'audiobook_search 结果里的 ref' },
         title: { type: 'string', description: '书名（可省略，默认从书里读）' },
         author: { type: 'string', description: '作者（书里没写作者时用它）' },
@@ -100,7 +101,10 @@ export async function buildToolDefinitions() {
         }],
       },
       async execute(args) {
+        const catalog = args.source === 'opds' ? (await getSettings()).customSources.find(c => c.id === args.catalog && c.kind === 'opds') : undefined
+        if (args.source === 'opds' && !catalog) throw new Error('没有这个 OPDS 书库')
         return plain(await importFromSource(String(args.source || ''), String(args.ref || ''), {
+          catalog,
           title: typeof args.title === 'string' ? args.title : '',
           author: typeof args.author === 'string' ? args.author : '',
         }))

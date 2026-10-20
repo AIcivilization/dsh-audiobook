@@ -133,6 +133,8 @@ async function showLibrary() {
       </div>
       <div class="faint" style="margin-top:6px">在古腾堡计划、维基文库这些公版和授权免费的书源里找，找到直接加入书架。受版权保护的现代书这里没有。</div>
       <div id="found"></div>
+      <div id="elsewhere"></div>
+      <div id="web"></div>
     </div>
     <div class="card">
       <div class="drop" id="drop">
@@ -181,6 +183,8 @@ async function showLibrary() {
   $('#q-go').onclick = () => runSearch($('#q').value)
   $('#q').onkeydown = e => { if (e.key === 'Enter') runSearch($('#q').value) }
   if (S.lastFound) renderFound(S.lastFound)
+  if (S.lastWeb) renderWeb(S.lastWeb)
+  api('settings').then((st) => { S.settings = st; renderElsewhere() }).catch(() => {})
   loadBooks()
 }
 
@@ -217,12 +221,108 @@ async function runSearch(q) {
   q = String(q || '').trim()
   if (!q) return
   S.lastQuery = q
+  S.lastWeb = null
+  renderElsewhere()
   const box = $('#found')
-  box.innerHTML = '<div class="faint" style="margin-top:10px">正在搜…（让 AI 猜书名、再去各书源找，大约几秒到十几秒）</div>'
+  box.innerHTML = '<div class="faint" style="margin-top:10px">正在搜书源…（让 AI 猜书名、再去各书源找，大约几秒到十几秒）</div>'
+  $('#web').innerHTML = '<div class="faint" style="margin-top:12px">正在网页搜索…</div>'
+  // 网页搜索慢一些，各搜各的，谁先好先显示谁
+  api(`websearch?q=${encodeURIComponent(q)}`)
+    .then((w) => { if (S.lastQuery === q) { S.lastWeb = { ...w, query: q }; renderWeb(S.lastWeb) } })
+    .catch((e) => { if (S.lastQuery === q) { S.lastWeb = { available: false, results: [], error: e.message, query: q }; renderWeb(S.lastWeb) } })
   try {
-    S.lastFound = await api(`search?q=${encodeURIComponent(q)}`)
-    renderFound(S.lastFound)
+    const f = await api(`search?q=${encodeURIComponent(q)}`)
+    if (S.lastQuery !== q) return
+    S.lastFound = f
+    renderFound(f)
   } catch (e) { box.innerHTML = `<div class="note" style="color:var(--bad)">${esc(e.message)}</div>` }
+}
+
+/** 「去别处搜」：自定义的网页搜索地址，点了在浏览器新窗口打开 */
+function renderElsewhere() {
+  const box = $('#elsewhere')
+  if (!box || !S.settings) return
+  const webs = (S.settings.customSources || []).filter(c => c.kind === 'web')
+  const opds = (S.settings.customSources || []).filter(c => c.kind === 'opds')
+  const q = S.lastQuery || ''
+  box.innerHTML = `<div class="row elsewhere">
+    <span class="faint">去别处搜：</span>
+    ${webs.map(c => q ? `<a class="link" target="_blank" rel="noopener" href="${esc(c.url.replace('{q}', encodeURIComponent(q)))}">${esc(c.name)}</a>` : `<span class="faint">${esc(c.name)}</span>`).join('<span class="faint">·</span>')}
+    ${opds.length ? `<span class="faint">｜我的书库：${opds.map(c => esc(c.name)).join('、')}（结果合在上面）</span>` : ''}
+    <button class="btn ghost small" id="manage-src">管理搜索地址</button>
+  </div>`
+  $('#manage-src').onclick = openSources
+}
+
+/** 网页搜索结果：只给链接，在浏览器里打开，由用户自己判断 */
+function renderWeb(w) {
+  const box = $('#web')
+  if (!box) return
+  if (!w.available) {
+    box.innerHTML = w.error ? `<div class="faint" style="margin-top:10px">网页搜索没成功：${esc(w.error)}。可以在 DSH 的「插件 → 网页搜索」里检查设置，或者点上面的「去别处搜」。</div>` : ''
+    return
+  }
+  box.innerHTML = `<h3 style="margin:16px 0 4px">网页搜索</h3>` + (w.results.length ? `<div class="hits">${w.results.map(r => {
+    let host = ''
+    try { host = new URL(r.url).host.replace(/^www\./, '') } catch { /* 不是网址 */ }
+    return `<div class="hit">
+      <div class="grow">
+        <div class="t">${esc(r.title)}</div>
+        <div class="meta">${esc(host)}${r.snippet ? ' · ' + esc(r.snippet) : ''}</div>
+      </div>
+      <a class="btn" href="${esc(r.url)}" target="_blank" rel="noopener">打开</a>
+    </div>`
+  }).join('')}</div>
+  <div class="faint" style="margin-top:6px">网页上下载到的书，可以用下面的「导入」加进书架。请只下载有授权的书。</div>` : '<div class="faint">网页搜索没有结果。</div>')
+}
+
+/** 管理自定义搜索地址：网页（在浏览器打开）或 OPDS 书库（结果合进书源结果，可直接加入书架） */
+function openSources() {
+  let list = (S.settings.customSources || []).map(c => ({ ...c }))
+  const draw = () => {
+    const body = $('#sheet-body')
+    if (!body) return
+    body.innerHTML = `
+      <div class="src-list">${list.map((c, k) => `
+        <div class="hit">
+          <div class="grow"><div class="t">${esc(c.name)} <span class="badge">${c.kind === 'opds' ? 'OPDS 书库' : '网页'}</span></div><div class="meta">${esc(c.url)}</div></div>
+          <button class="btn ghost" data-up="${k}" ${k ? '' : 'disabled'} title="往前挪">↑</button>
+          <button class="btn danger" data-del="${k}">删除</button>
+        </div>`).join('') || '<div class="faint">没有自定义地址</div>'}</div>
+      <h3 style="margin:16px 0 6px">添加</h3>
+      <div class="row">
+        <input class="input" id="s-name" placeholder="名字，如 豆瓣" style="width:8em">
+        <select class="input" id="s-kind"><option value="web">网页</option><option value="opds">OPDS 书库</option></select>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <input class="input grow" id="s-url" placeholder="地址，用 {q} 代表要搜的词，如 https://www.baidu.com/s?wd={q}">
+        <button class="btn" id="s-add">添加</button>
+      </div>
+      <p class="note">网页：点名字就在浏览器里打开那个网站的搜索结果。OPDS 书库：Calibre、calibre-web、Kavita 这类自建书库的搜索地址（Calibre 内容服务器是 http://地址:8080/opds/search/{q}），结果会合在上面的书源结果里，可以直接加入书架。</p>
+      <div class="row" style="margin-top:10px"><button class="btn primary" id="s-save">保存</button><button class="btn ghost" id="s-reset">恢复默认</button><span class="faint" id="s-msg"></span></div>`
+    for (const b of body.querySelectorAll('[data-del]')) b.onclick = () => { list.splice(Number(b.dataset.del), 1); draw() }
+    for (const b of body.querySelectorAll('[data-up]')) b.onclick = () => { const k = Number(b.dataset.up); [list[k - 1], list[k]] = [list[k], list[k - 1]]; draw() }
+    $('#s-add').onclick = () => {
+      const name = $('#s-name').value.trim()
+      const url = $('#s-url').value.trim()
+      if (!name || !url) { $('#s-msg').textContent = '名字和地址都要填'; return }
+      if (!url.includes('{q}')) { $('#s-msg').textContent = '地址里要有 {q}'; return }
+      list.push({ name, url, kind: $('#s-kind').value })
+      draw()
+    }
+    $('#s-reset').onclick = () => { list = null; save() }
+    $('#s-save').onclick = () => save()
+  }
+  const save = async () => {
+    try {
+      const r = await api('settings', { customSources: list === null ? 'default' : list })
+      S.settings = r.settings
+      closeSheet()
+      renderElsewhere()
+      toast('搜索地址已保存')
+    } catch (e) { const m = $('#s-msg'); if (m) m.textContent = e.message }
+  }
+  openSheet('搜索地址', '', draw)
 }
 
 function renderFound(f) {
@@ -249,7 +349,7 @@ function renderFound(f) {
       b.disabled = true
       b.textContent = r.source.startsWith('wikisource') ? '下载中…（整部导出可能要一两分钟）' : '下载中…'
       try {
-        const j = await api('download', { source: r.source, ref: r.ref, author: r.author || '' })
+        const j = await api('download', { source: r.source, ref: r.ref, author: r.author || '', title: r.title || '', catalog: r.catalog })
         b.textContent = '已加入，去听 ›'
         b.disabled = false
         b.classList.add('primary')

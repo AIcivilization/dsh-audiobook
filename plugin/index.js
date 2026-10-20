@@ -4,7 +4,8 @@
 //    插件路由不会自动过 dsh 的登录校验：每个请求先问 connection.requestRejection()（和官方 open-in-app 一样：
 //    Host/Origin 防 DNS 重绑定和跨站，再查登录令牌 cookie）；老版本没有这个服务就只放行本机
 // 2. 注册 AI 工具（plugin/tools.js）：在对话里搜书下书、导入书、查进度、读出刚听过的内容、跳到某一章
-// 3. 面板里搜书时，用 DSH 里配好的模型（ctx.llm）按角色名、情节猜书名：插件配置里的 provider/model，没有就用 DSH 的默认模型
+// 3. 常规网页搜索用 DSH 自己的网页搜索（ctx.web，就是「插件 → 网页搜索」里配的那个）
+// 4. 面板里搜书时，用 DSH 里配好的模型（ctx.llm）按角色名、情节猜书名：插件配置里的 provider/model，没有就用 DSH 的默认模型
 //
 // 本地语音合成在子进程里跑（lib/kokoro-worker.js），不卡 DSH。
 //
@@ -71,6 +72,19 @@ export function apply(ctx, config = {}) {
   })
   const model = () => (llm && typeof llm.stream === 'function' && route() ? dshLlm(llm, route) : null)
 
+  let web
+  ctx.inject(['web'], (c) => {
+    c.effect(() => {
+      web = c.web || (c.get && c.get('web'))
+      return () => { web = undefined }
+    })
+  })
+  const webSearch = async (q) => {
+    if (!web || typeof web.search !== 'function') throw new Error('这个版本的 DSH 没有网页搜索')
+    const r = await web.search({ query: q, maxResults: 10 }, AbortSignal.timeout(60000))
+    return (r.sources || []).map(x => ({ title: x.title || x.url, url: x.url, snippet: x.snippet || '' }))
+  }
+
   const speech = createSpeech({ ffmpeg: () => findFfmpeg(cfg.ffmpeg), threads: cfg.threads || 2, workers: cfg.workers || 2 })
   // 插件卸载 / DSH 退出：停掉合成子进程
   const stopAll = () => speech.stop()
@@ -95,6 +109,7 @@ export function apply(ctx, config = {}) {
     pkgRoot: PKG_ROOT,
     speech,
     llm: model,
+    webSearch,
     options: () => ({ ffmpeg: cfg.ffmpeg }),
     status: () => {
       const r = route()
