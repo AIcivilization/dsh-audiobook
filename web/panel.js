@@ -131,7 +131,7 @@ async function showLibrary() {
         <input class="input grow" id="q" placeholder="书名、作者，或者记得的角色名、情节" value="${esc(S.lastQuery || '')}">
         <button class="btn primary" id="q-go">搜索</button>
       </div>
-      <div class="faint" style="margin-top:6px">在古腾堡计划、维基文库这些公版和授权免费的书源里找，找到直接加入书架。受版权保护的现代书这里没有。</div>
+      <div class="faint" style="margin-top:6px">在古腾堡计划、维基文库、Internet Archive、Standard Ebooks 这些公版和授权免费的书源里找，找到直接加入书架。受版权保护的现代书这里没有。</div>
       <div id="found"></div>
       <div id="elsewhere"></div>
       <div id="web"></div>

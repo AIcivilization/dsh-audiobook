@@ -34,6 +34,9 @@ globalThis.fetch = async (url, init) => {
     if (d.includes('城')) return Response.json({ query: { search: [{ title: '井文昊与上海围城置业发展有限公司房屋买卖合同纠纷一审民事判决书' }, { title: '圍城病中文舉相過' }] } })
     return Response.json({ query: { search: [] } })
   }
+  // Internet Archive、Standard Ebooks：这些测试里都当成没结果（专门的测试见下面）
+  if (u.includes('archive.org/advancedsearch')) return Response.json({ response: { docs: [] } })
+  if (u.includes('standardebooks.org/ebooks?')) return new Response('<ol></ol>')
   if (u.includes('ws-export.wmcloud.org')) {
     return new Response(makeEpub({
       title: '紅樓夢', author: '',
@@ -203,5 +206,44 @@ test('OPDS：搜自己的书库、下载进书架；别的域名的地址不下'
     // 搜书时 OPDS 结果直接留着（书库自己按书名搜过了）
     const r = await findBooks('围城', { catalogs: [LIB] })
     assert.equal(r.results[0].source, 'opds')
+  } finally { globalThis.fetch = prev }
+})
+
+// ———————————————————— Internet Archive、Standard Ebooks ————————————————————
+
+const { parseArchiveSearch, pickArchiveFile, parseStandardEbooks, cleanStandardEbooks } = await import('../lib/sources.js')
+
+test('古腾堡：标题后面的语言标出来（德语版……），中文、英文不标', () => {
+  const r = parseGutenbergOpds('<entry><id>https://www.gutenberg.org/ebooks/44956.opds</id><title>Anna Karenina, 1. Band (German)</title><content>Tolstoy</content></entry>')
+  assert.deepEqual([r[0].title, r[0].snippet], ['Anna Karenina, 1. Band', '德语版'])
+})
+
+test('Internet Archive：结果解析，扫描版标出来；挑文件：TXT > EPUB > 扫描识别', () => {
+  const r = parseArchiveSearch({ response: { docs: [
+    { identifier: 'pg768', title: 'Wuthering Heights', creator: 'Emily Brontë', format: ['EPUB', 'Text'] },
+    { identifier: 'scan1', title: ['Wuthering Heights'], creator: ['A', 'B'], format: ['DjVuTXT', 'Text PDF'], language: 'chi' },
+  ] } })
+  assert.deepEqual(r.map(x => [x.ref, x.author, x.scan, x.lang]), [['pg768', 'Emily Brontë', false, ''], ['scan1', 'A、B', true, 'zh']])
+  assert.deepEqual(pickArchiveFile([{ name: 'a.epub', format: 'EPUB' }, { name: 'a_djvu.txt', format: 'DjVuTXT' }, { name: 'a.txt', format: 'Text' }]), { name: 'a.txt', ext: '.txt' })
+  assert.deepEqual(pickArchiveFile([{ name: 'a_djvu.txt', format: 'DjVuTXT' }, { name: 'a.epub', format: 'EPUB', private: 'true' }]), { name: 'a_djvu.txt', ext: '.txt' })
+  assert.equal(pickArchiveFile([{ name: 'a.pdf', format: 'Text PDF' }]), null)
+})
+
+test('Standard Ebooks：解析搜索页；去掉书名页、版权页', () => {
+  const r = parseStandardEbooks('<ol><li typeof="schema:Book" about="/ebooks/leo-tolstoy/anna-karenina/constance-garnett"><span property="schema:name">Anna Karenina</span><span property="schema:name">Leo Tolstoy</span></li></ol>')
+  assert.deepEqual(r.map(x => [x.ref, x.title, x.author]), [['leo-tolstoy/anna-karenina/constance-garnett', 'Anna Karenina', 'Leo Tolstoy']])
+  const c = cleanStandardEbooks({ chapters: [{ title: 'Titlepage', text: 'x' }, { title: 'I', text: 'Happy families' }, { title: 'Colophon', text: 'y' }, { title: 'Uncopyright', text: 'z' }] })
+  assert.deepEqual(c.chapters.map(x => x.title), ['I'])
+})
+
+test('Internet Archive：没标授权的书不下载', async () => {
+  const prev = globalThis.fetch
+  globalThis.fetch = async (url, init) => (String(url).startsWith('https://archive.org/metadata/')
+    ? Response.json({ metadata: { title: 'x' }, files: [{ name: 'x.epub', format: 'EPUB' }] })
+    : prev(url, init))
+  try {
+    await assert.rejects(importFromSource('archive', 'someupload'), /没有标明公有领域或开放授权/)
+    await assert.rejects(importFromSource('archive', '../x'), /编号不对/)
+    await assert.rejects(importFromSource('standardebooks', 'https://evil'), /书名不对/)
   } finally { globalThis.fetch = prev }
 })

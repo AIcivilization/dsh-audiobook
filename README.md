@@ -1,7 +1,7 @@
 # 搜书听 · dsh-audiobook
 
 **Turn any book into an audiobook inside [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh).**
-Search public-domain libraries (Project Gutenberg, Wikisource) by title, author, a character's name or a half-remembered plot, or import your own EPUB, PDF, TXT, DOCX or Markdown file, and listen in the sidebar — Microsoft Edge neural voices, offline Kokoro, or your device's own voices; adjustable speed; it remembers where you stopped.
+Search public-domain libraries (Project Gutenberg, Wikisource, Internet Archive, Standard Ebooks) by title, author, a character's name or a half-remembered plot, or import your own EPUB, PDF, TXT, DOCX or Markdown file, and listen in the sidebar — Microsoft Edge neural voices, offline Kokoro, or your device's own voices; adjustable speed; it remembers where you stopped.
 
 **搜一本书，或者导入一本书，读给你听。** 书名、作者、角色名、大概的情节都能搜；声音、语速可选，自动记住听到哪。DSH 插件，也能脱离 DSH 单独用。
 
@@ -20,6 +20,8 @@ dsh plugin --profile desktop add dsh-audiobook
    | [古腾堡计划](https://www.gutenberg.org) | 7 万多本公版书，英文为主，也有《紅樓夢》《西遊記》等中文古籍（多为繁体） |
    | [中文维基文库](https://zh.wikisource.org) | 中文公版古籍、民国作品（鲁迅等），整部作品导出成 EPUB（大书要一两分钟） |
    | [英文维基文库](https://en.wikisource.org) | 英文公版作品 |
+   | [Internet Archive](https://archive.org) | 只收标明公有领域或 CC 授权、而且有文字版的书；有不少中文旧书。扫描版的文字是识别出来的，可能有错字，结果里会标出来 |
+   | [Standard Ebooks](https://standardebooks.org) | 精校排版的英文公版书 |
 
    只接这些公版和授权免费的书源。受版权保护的现代书（比如《围城》）搜不到，AI 猜到了也会照实说「书源里没有」：请买正版电子书后导入。
 

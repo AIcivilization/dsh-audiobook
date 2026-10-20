@@ -1,6 +1,6 @@
 {
   "name": "dsh-audiobook",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Turn any book into an audiobook in DSH: search Gutenberg / Wikisource by title, character or plot, or import EPUB / PDF / TXT, and listen with Edge or system voices. · 搜书听：搜一本书或导入一本书，在 DSH 里读给你听。",
   "keywords": [
     "dsh-plugin",
@@ -30,7 +30,9 @@
     "gutenberg",
     "wikisource",
     "public-domain",
-    "搜书"
+    "搜书",
+    "internet-archive",
+    "standard-ebooks"
   ],
   "license": "MIT",
   "author": "AIcivilization",

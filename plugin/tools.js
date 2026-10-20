@@ -62,7 +62,7 @@ export async function buildToolDefinitions() {
   return [
     {
       name: 'audiobook_search',
-      description: '在公版书和授权免费的书源里搜书：古腾堡计划（7 万多本公版书，英文为主，也有中文古籍）、中文 / 英文维基文库（公版古籍、民国作品），以及用户自己配置的 OPDS 书库。' +
+      description: '在公版书和授权免费的书源里搜书：古腾堡计划（7 万多本公版书，英文为主，也有中文古籍）、中文 / 英文维基文库（公版古籍、民国作品）、Internet Archive（标明公有领域或 CC 授权的书）、Standard Ebooks（精校英文公版书），以及用户自己配置的 OPDS 书库。' +
         '用户只记得角色名或情节时，先自己判断是哪本书，再用书名搜；中文古籍可以再用繁体书名搜一次（古腾堡收的多是繁体）。' +
         '受版权保护的现代书这里搜不到，照实告诉用户，建议买正版电子书后用 audiobook_import 导入。找到后用 audiobook_download 下载。',
       parameters: params({
