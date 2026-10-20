@@ -1,0 +1,6 @@
+# 搜书听（dsh-audiobook）的 dsh 插件：朗读面板挂在对话页右侧栏，设置里有一个「搜书听」分区。
+# 可在 profile 的 cordis.patch.yml 里给 id: dsh-audiobook 加 config：
+#   ffmpeg（路径，可选）、threads（每个本地语音进程的线程数）、workers（本地语音进程数，默认 2）
+- insert:
+    - id: dsh-audiobook
+      name: dsh-audiobook

@@ -1,0 +1,115 @@
+# 搜书听 · dsh-audiobook
+
+**Turn any book into an audiobook inside [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh).**
+Import an EPUB, PDF, TXT, DOCX or Markdown file and listen in the sidebar — Microsoft Edge neural voices, offline Kokoro, or your device's own voices; adjustable speed; it remembers where you stopped.
+
+**导入一本书，读给你听。** 声音、语速可选，自动记住听到哪。DSH 插件，也能脱离 DSH 单独用。
+
+<p align="center"><img src="https://raw.githubusercontent.com/AIcivilization/dsh-audiobook/main/docs/screenshot.jpg" width="360" alt="搜书听在 DSH 右侧栏朗读一本书：正在读的段落高亮，底部是播放条"></p>
+
+```bash
+dsh plugin --profile desktop add dsh-audiobook
+```
+
+## 它做什么
+
+1. **导入**：把文件拖进面板、选文件，或者填本机路径。支持的格式：
+
+   | 格式 | 怎么读 |
+   | --- | --- |
+   | TXT | 自动认编码：UTF-8、UTF-16、GBK / GB18030、Big5 |
+   | EPUB | 按书脊顺序，目录里的标题当章名（DRM 加密的读不了） |
+   | PDF | 取文字层，把版面折行接回段落（扫描版没有文字层，读不了） |
+   | DOCX | 标题样式当章节 |
+   | Markdown / HTML | `#` 标题、`<h1>` 当章节 |
+   | RTF / DOC | 用 macOS 自带的 textutil 转换（只在 Mac 上） |
+
+   纯文本按「第X章」「Chapter N」「序章」「尾声」这类标题分章；认不出标题的每约 8000 字分一个「第 N 部分」，方便跳转。
+
+2. **朗读**（右侧栏「搜书听」页签，或手机浏览器直接打开）：正文按约 20–30 秒一段切开，读到哪段高亮到哪段，点任意一段从那里读。
+
+   | 朗读方式 | 说明 |
+   | --- | --- |
+   | 浏览器朗读 | 不用安装，用这台设备自带的语音，文字不出这台设备。Mac 上在系统设置里下载「高级 / 增强」中文语音后会排在最前。手机锁屏后可能会停 |
+   | 微软 Edge | 最自然。云希、晓晓、云健等 12 个中文声音（含台湾、粤语、方言），另有 6 个英文声音。调用开源工具 [edge-tts](https://github.com/rany2/edge-tts)，点「安装 Edge 语音组件」装进插件自己的 Python 虚拟环境（需要 Python 3）。要联网，文字会发到微软的服务器；这不是微软公开的正式接口，可能失效 |
+   | 本地离线 | Kokoro 中文模型，55 个女声、45 个男声，完全离线。第一次用时下载约 147 MB 模型。比 Edge 生硬，合成也慢：开播的第一段要等十几秒，之后一边播一边提前合成 |
+
+   已经装了「听懂」的话，它下好的 Kokoro 中文模型和装好的 Edge 语音组件直接借用，不用再下。
+
+3. **语速**：0.75× 到 2.5×。Edge 和本地语音由播放器加速，音调不变，换语速不用重新合成。
+
+4. **进度**：每读一段存一次，存在服务器上和本机。关掉面板、换设备打开，都从上次的地方接着读。
+
+5. **其他**：目录跳章、全书进度条拖动、定时停止（15 分钟到 1.5 小时，或读完本章停），锁屏界面和耳机线控（播放 / 暂停 / 上一段 / 下一段）。
+
+电脑快捷键：空格 播放 / 暂停 · ← / → 上一段 / 下一段
+
+### 在 DSH 对话里
+
+插件给 AI 注册了 4 个工具，可以直接说：
+
+- 「把 ~/Downloads/三体.epub 导入搜书听」：`audiobook_import`
+- 「我在听哪些书？听到哪了？」：`audiobook_books`
+- 「刚才那段讲了什么？」「阿青第一次出场在哪？」「把第三章讲给我听」：`audiobook_text`，可以取刚听过的内容、在全书里找词、按章取正文
+- 「跳到第十章」「跳到阿青出场的地方」：`audiobook_goto`。面板没在播放时几秒内就会跟上新位置
+
+**更新 / 卸载**：在 DSH 的「设置 → 搜书听」里。卸载只移除插件，书和收听进度留在 `~/.dsh/dsh-audiobook`。
+
+## 安装
+
+装进 DSH（把 `desktop` 换成你的 profile 名；先完全退出 DSH）：
+
+```bash
+dsh plugin --profile desktop add dsh-audiobook
+```
+
+重新打开 DSH，在对话页打开右侧栏，选「搜书听 · 读书给你听」。VPS 上的 DSH 一样装（以运行 DSH 的用户执行，再重启 DSH），手机浏览器打开 `https://<你的域名>/api-dsh-audiobook/panel` 就能听。
+
+ffmpeg 可选：有就把本地语音压成 MP3（隔着 VPS 用手机听更流畅），没有就直接给 WAV。
+
+### 可选配置
+
+在 profile 的 `cordis.patch.yml` 里：
+
+```yaml
+- id: dsh-audiobook
+  config:
+    ffmpeg: /opt/homebrew/bin/ffmpeg   # 找不到 ffmpeg 时填
+    threads: 2                         # 每个本地语音进程的线程数
+    workers: 2                         # 同时开几个本地语音进程（每个占 300–400 MB 内存；VPS 内存小就设 1）
+```
+
+## 不开 DSH 也能用
+
+```bash
+npx dsh-audiobook import ~/Downloads/书.epub     # 导入
+npx dsh-audiobook serve                          # 打开 http://127.0.0.1:4811
+npx dsh-audiobook list
+```
+
+## 数据
+
+都在 `~/.dsh/dsh-audiobook/`：
+
+- `books/<书>/book.json`：书名、作者、目录
+- `books/<书>/text.json`：切好的朗读段
+- `books/<书>/progress.json`：听到第几段
+- `settings.json`：朗读方式、声音、语速
+- `cache/`：合成好的声音，超过 500 MB 自动删最久没用的，可以随时整个删掉
+
+同一本书换个位置再导入，还是同一本（编号按内容算），进度接得上。DSH 插件和命令行版共用这份数据。
+
+## 开发
+
+```bash
+npm install
+npm test
+```
+
+- `lib/extract.js` 各种格式取文字；`lib/zip.js` 读 EPUB / DOCX 用的最小 ZIP 解包
+- `lib/segment.js` 分章、分句、切朗读段
+- `lib/speech.js` 服务器端合成：缓存、排队、预取（正在听的那段插队）
+- `lib/edge.js` Edge 语音组件（edge-tts）的安装和调用；`lib/kokoro.js` + `lib/kokoro-worker.js` 本地中文语音的常驻子进程
+- `lib/store.js` 书库、进度、设置（原子写入的 JSON）；`lib/server.js` 面板接口
+- `plugin/` DSH 宿主端（路由、AI 工具、更新卸载）和界面入口（右侧栏、设置）；路由先过 DSH 的 `connection.requestRejection()` 登录校验
+- `web/` 朗读面板（原生 JS 模块，无构建）：`panel.js` 书库和朗读页，`player.js` 一段接一段地读（两个 `<audio>` 轮换预载，段间几乎不停顿）

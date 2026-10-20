@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="搜书听">
+<meta name="theme-color" content="#f7f6f3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#17171a" media="(prefers-color-scheme: dark)">
+<title>搜书听</title>
+<link rel="stylesheet" href="panel.css">
+</head>
+<body>
+<header class="top">
+  <button class="icon-btn" id="back" hidden title="返回书库" aria-label="返回书库">‹</button>
+  <div class="brand" id="brand">搜书听</div>
+  <span class="faint" id="ver"></span>
+  <div class="spacer"></div>
+  <a class="link" id="popout" href="panel" target="_blank" rel="noopener" hidden>新窗口打开</a>
+</header>
+<main id="app"></main>
+<audio id="a0" preload="auto"></audio>
+<audio id="a1" preload="auto"></audio>
+<script type="module" src="panel.js"></script>
+</body>
+</html>
