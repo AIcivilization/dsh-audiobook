@@ -11,7 +11,7 @@ process.env.DSH_AUDIOBOOK_HOME = home
 after(() => rm(home, { recursive: true, force: true }))
 
 const { cleanGutenberg, cleanWikisource, parseGutenbergOpds, parseWikisourceSearch, searchSources } = await import('../lib/sources.js')
-const { findBooks, parseGuesses } = await import('../lib/finder.js')
+const { findBooks, parseGuesses, titleScore } = await import('../lib/finder.js')
 const { importFromSource } = await import('../lib/importer.js')
 const { extractEpub } = await import('../lib/extract.js')
 const { getBook, getSegs } = await import('../lib/store.js')
@@ -28,7 +28,12 @@ globalThis.fetch = async (url, init) => {
   const u = String(url)
   calls.push(u)
   if (u.includes('gutenberg.org/ebooks/search.opds')) return new Response(decodeURIComponent(u).includes('紅樓夢') ? OPDS : '<feed></feed>')
-  if (u.includes('wikisource.org/w/api.php')) return Response.json(decodeURIComponent(u).includes('紅樓夢') ? WS : { query: { search: [] } })
+  if (u.includes('wikisource.org/w/api.php')) {
+    const d = decodeURIComponent(u)
+    if (d.includes('紅樓夢')) return Response.json(WS)
+    if (d.includes('城')) return Response.json({ query: { search: [{ title: '井文昊与上海围城置业发展有限公司房屋买卖合同纠纷一审民事判决书' }, { title: '圍城病中文舉相過' }] } })
+    return Response.json({ query: { search: [] } })
+  }
   if (u.includes('ws-export.wmcloud.org')) {
     return new Response(makeEpub({
       title: '紅樓夢', author: '',
@@ -84,6 +89,23 @@ test('EPUB：一个文件里装着几章时，按目录锚点切开', () => {
   const epub = makeEpub({ chapters: [{ tocs: [['', '书名页'], ['c1', '第一章'], ['c2', '第二章']], html: '<p>扉页</p><h2 id="c1">第一章</h2><p>甲。</p><h2 id="c2">第二章</h2><p>乙。</p>' }] })
   const out = extractEpub(epub)
   assert.deepEqual(out.chapters.map(c => [c.title, c.text]), [['书名页', '扉页'], ['第一章', '第一章\n甲。'], ['第二章', '第二章\n乙。']])
+})
+
+test('书名匹配：只认书名对得上的，标题里含着这几个字的不算', () => {
+  assert.equal(titleScore('紅樓夢', '紅樓夢'), 3)
+  assert.equal(titleScore('紅樓夢（程甲本）', '紅樓夢'), 2)
+  assert.equal(titleScore('Pride and Prejudice', 'pride and prejudice'), 3)
+  assert.equal(titleScore('The Adventures of Tom Sawyer', 'Adventures of Tom Sawyer'), 3)
+  assert.equal(titleScore('圍城病中文舉相過', '圍城'), 0)
+  assert.equal(titleScore('井文昊与上海围城置业发展有限公司房屋买卖合同纠纷一审民事判决书', '围城'), 0)
+  assert.equal(titleScore('後紅樓夢', '紅樓夢'), 0)
+})
+
+test('搜书：只沾了几个字的结果丢掉；AI 猜到但书源里没有的照实说', async () => {
+  const llm = { async complete() { return '{"books":[{"title":"围城","hant":"圍城","author":"钱钟书"}]}' } }
+  const r = await findBooks('围城', { llm })
+  assert.equal(r.results.length, 0)
+  assert.equal(r.guesses[0].found, false)
 })
 
 test('AI 猜书名：能从带说明的回答里抠出 JSON', () => {

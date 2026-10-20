@@ -228,7 +228,7 @@ async function runSearch(q) {
 function renderFound(f) {
   const box = $('#found')
   if (!box) return
-  const guesses = f.guesses.length ? `<div class="note">AI 认为你找的可能是：${f.guesses.map(g =>
+  const guesses = f.guesses.length && f.results.length ? `<div class="note">AI 认为你找的可能是：${f.guesses.map(g =>
     `<b>《${esc(g.title || g.original)}》</b>${g.author ? esc(g.author) : ''}${g.found ? '' : '<span class="faint">（书源里没有，多半还在版权期内）</span>'}`).join('；')}</div>` : ''
   const notes = [f.note, f.failed.length ? `${f.failed.join('、')}暂时连不上，结果可能不全` : ''].filter(Boolean).map(t => `<div class="faint">${esc(t)}</div>`).join('')
   const list = f.results.length ? f.results.map((r, k) => `
@@ -239,7 +239,9 @@ function renderFound(f) {
       </div>
       <a class="link" href="${esc(r.link)}" target="_blank" rel="noopener">看看</a>
       <button class="btn" data-hit="${k}">加入书架</button>
-    </div>`).join('') : `<div class="note">没搜到「${esc(f.query)}」。可以换个书名试试：中文古籍试试繁体，外国书试试原文书名。</div>`
+    </div>`).join('') : f.guesses.length
+    ? `<div class="note">合规书源里没有${f.guesses.map(g => `《${esc(g.title || g.original)}》`).join('、')}。这里只有公版书和授权免费的书，这几本多半还在版权期内：可以买正版电子书，再用下面的「导入」读给你听。</div>`
+    : `<div class="note">没搜到「${esc(f.query)}」。换个说法试试：书名、作者，或者书里的角色名、情节；外国书可以用原文书名。</div>`
   box.innerHTML = guesses + notes + `<div class="hits">${list}</div>`
   for (const b of box.querySelectorAll('[data-hit]')) {
     b.onclick = async () => {
