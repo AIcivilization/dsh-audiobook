@@ -1,4 +1,4 @@
-// plugin/tools.js — 给 DSH 对话里的 AI 用的 6 个工具
+// plugin/tools.js — 给 DSH 对话里的 AI 用的 8 个工具
 //
 // 让用户在对话里说「帮我找那本主角叫贾宝玉的书来听」「把 ~/Downloads/三体.epub 导入搜书听」
 // 「我听到哪了？刚才那段讲了什么」「主角第一次出场在哪」「跳到第十章」，
@@ -9,6 +9,7 @@
 
 import { findBooks } from '../lib/finder.js'
 import { importDocument, importFromSource } from '../lib/importer.js'
+import { addNote, allNotes, getNotes } from '../lib/notes.js'
 import { SOURCES } from '../lib/sources.js'
 import { chapterOf, checkId, getBook, getProgress, getSegs, getSettings, listBooks, setProgress } from '../lib/store.js'
 
@@ -241,8 +242,63 @@ export async function buildToolDefinitions() {
   ]
 }
 
+const noteLine = n => `- [${n.bookTitle ? `《${n.bookTitle}》` : ''}${n.chapter}] ${new Date(n.createdAt).toLocaleDateString('zh-CN')} 摘句「${n.quote}」：${n.polished || n.text}`
+
+/** 读书心得的两个工具：看 / 搜心得，记一条心得 */
+function noteTools() {
+  return [
+    {
+      name: 'audiobook_notes',
+      description: '取用户在「搜书听」里记的读书心得（听书时语音或打字记的，挂在书里的位置上）。给 id 就是那本书的全部心得；不给 id 就是所有书的心得，可以用 query 搜、用 days 限定最近几天。' +
+        '适合帮用户回顾、整理心得，讨论他的想法，或者写读后感。',
+      parameters: params({
+        id: { type: 'string', description: '书的编号（省略就是所有书）' },
+        query: { type: 'string', description: '只要包含这个词的心得' },
+        days: { type: 'integer', description: '只要最近几天的' },
+      }),
+      output: {
+        schema: ANY_OBJECT,
+        render: (_a, v) => [{ type: 'text', text: v.lines.length ? `${v.title}（${v.lines.length} 条）
+${v.lines.join('\n')}` : `${v.title}：还没有心得` }],
+      },
+      async execute(args) {
+        if (args.id) {
+          const book = await getBook(checkId(String(args.id)))
+          if (!book) throw new Error('没有这本书')
+          const { notes, reviews } = await getNotes(book.id)
+          const q = String(args.query || '')
+          const lines = notes.filter(n => !q || `${n.text}${n.polished || ''}${n.quote}`.includes(q)).sort((a, b) => a.seg - b.seg).map(noteLine)
+          if (reviews[0]) lines.push(`读后感：\n${reviews[0].text}`)
+          return plain({ title: `《${book.title}》的读书心得`, lines })
+        }
+        const days = Number.parseInt(args.days, 10) || 0
+        const notes = await allNotes({ since: days > 0 ? Date.now() - days * 86400e3 : 0, query: String(args.query || '') })
+        return plain({ title: days > 0 ? `最近 ${days} 天的读书心得` : '所有读书心得', lines: notes.slice(0, 200).map(noteLine) })
+      },
+    },
+    {
+      name: 'audiobook_add_note',
+      description: '把一条读书心得记到「搜书听」里，挂在用户正在听的位置（或指定的段）。用户说「把这个想法记下来」「记到心得里」时用；记用户自己的想法，或者用户认可的讨论结论。',
+      parameters: params({
+        text: { type: 'string', required: true, description: '心得内容' },
+        id: { type: 'string', description: '书的编号（省略就是最近听的那本）' },
+      }),
+      output: {
+        schema: ANY_OBJECT,
+        render: (_a, v) => [{ type: 'text', text: `已记到《${v.title}》的心得里（${v.chapter}）。` }],
+      },
+      async execute(args) {
+        const book = await pickBook(args.id)
+        const p = await getProgress(book.id)
+        const n = await addNote(book.id, { seg: p.seg, text: String(args.text || ''), source: 'ai' })
+        return plain({ title: book.title, chapter: n.chapter })
+      },
+    },
+  ]
+}
+
 /** 注册工具；有 effect 就交给它管理生命周期 */
 export async function registerTools(tools, deps) {
-  const defs = await buildToolDefinitions(deps)
+  const defs = [...await buildToolDefinitions(deps), ...noteTools()]
   return defs.map(def => (deps.effect ? deps.effect(() => tools.register(def)) : tools.register(def)))
 }

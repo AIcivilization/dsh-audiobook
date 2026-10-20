@@ -3,10 +3,15 @@
 //
 //   dsh-audiobook import <文件> [--title 书名]   导入一本书
 //   dsh-audiobook serve [--port 4811]            在浏览器里打开朗读面板（只听本机）
+//
+// 命令行版的模型：--base-url / --api-key / --model，或环境变量 AUDIOBOOK_BASE_URL / AUDIOBOOK_API_KEY / AUDIOBOOK_MODEL；
+// 都没给就用本机的 dsh-model 网关。
 //   dsh-audiobook list                           看书库里有哪些书
 
 import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
+import { createAsr } from '../lib/asr.js'
+import { cliLlm } from '../lib/llm.js'
 import { ensureEdge } from '../lib/edge.js'
 import { importDocument } from '../lib/importer.js'
 import { findFfmpeg } from '../lib/paths.js'
@@ -56,14 +61,17 @@ async function main() {
     const port = Number(flags.port) || 4811
     const speech = createSpeech({ ffmpeg: () => findFfmpeg(flags.ffmpeg), threads: Number(flags.threads) || 2, workers: Number(flags.workers) || 2 })
     ensureEdge().catch(e => console.error(e.message))
-    const handle = createHandler({ prefix: PREFIX, pkgRoot: PKG_ROOT, speech, options: () => ({ ffmpeg: flags.ffmpeg }), status: () => ({ host: 'cli' }) })
+    const asr = createAsr({ threads: Number(flags.threads) || 2 })
+    // 模型：问 AI、整理心得、读后感、搜书猜书名用；没有就这些功能不可用
+    const llm = await cliLlm(flags)
+    const handle = createHandler({ prefix: PREFIX, pkgRoot: PKG_ROOT, speech, asr, llm: () => llm, options: () => ({ ffmpeg: flags.ffmpeg }), status: () => ({ host: 'cli' }) })
     const server = createServer((req, res) => {
       if (req.url === '/' || req.url === '') { res.writeHead(302, { location: `${PREFIX}/panel` }); return res.end() }
       if (!String(req.url).startsWith(PREFIX)) { res.writeHead(404); return res.end() }
       handle(req, res)
     })
-    server.listen(port, '127.0.0.1', () => console.log(`朗读面板：http://127.0.0.1:${port}${PREFIX}/panel （Ctrl+C 退出）`))
-    const stop = () => { speech.stop(); server.close(); process.exit(0) }
+    server.listen(port, '127.0.0.1', () => console.log(`朗读面板：http://127.0.0.1:${port}${PREFIX}/panel （Ctrl+C 退出）${llm ? `\n模型：${llm.label()}` : '\n没有可用的模型：问 AI、整理心得这些功能用不了（可用 --base-url / --api-key / --model 指定）'}`))
+    const stop = () => { speech.stop(); asr.stop(); server.close(); process.exit(0) }
     process.on('SIGINT', stop)
     process.on('SIGTERM', stop)
     return

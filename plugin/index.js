@@ -19,6 +19,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createAsr } from '../lib/asr.js'
 import { ensureEdge } from '../lib/edge.js'
 import { dshLlm } from '../lib/llm.js'
 import { findFfmpeg } from '../lib/paths.js'
@@ -86,8 +87,9 @@ export function apply(ctx, config = {}) {
   }
 
   const speech = createSpeech({ ffmpeg: () => findFfmpeg(cfg.ffmpeg), threads: cfg.threads || 2, workers: cfg.workers || 2 })
-  // 插件卸载 / DSH 退出：停掉合成子进程
-  const stopAll = () => speech.stop()
+  const asr = createAsr({ threads: cfg.threads || 2 })
+  // 插件卸载 / DSH 退出：停掉合成、识别子进程
+  const stopAll = () => { speech.stop(); asr.stop() }
   if (typeof ctx.effect === 'function') ctx.effect(() => stopAll)
   else if (typeof ctx.on === 'function') ctx.on('dispose', stopAll)
 
@@ -110,6 +112,8 @@ export function apply(ctx, config = {}) {
     speech,
     llm: model,
     webSearch,
+    asr,
+    tools: () => toolRegistry,
     options: () => ({ ffmpeg: cfg.ffmpeg }),
     status: () => {
       const r = route()
@@ -151,9 +155,13 @@ export function apply(ctx, config = {}) {
     else reg()
   })
 
+  // 工具注册表：注册自己的 AI 工具，也用来找能导入心得的知识库插件
+  let toolRegistry
   ctx.inject(['tools'], (c) => {
     const tools = c.tools || (c.get && c.get('tools'))
     if (!tools || typeof tools.register !== 'function') return
+    toolRegistry = tools
+    if (typeof c.effect === 'function') c.effect(() => () => { if (toolRegistry === tools) toolRegistry = undefined })
     registerTools(tools, { effect: typeof c.effect === 'function' ? fn => c.effect(fn) : null })
       .catch(e => console.warn('[dsh-audiobook] AI 工具注册失败', e))
   })

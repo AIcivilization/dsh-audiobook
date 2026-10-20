@@ -3,6 +3,7 @@
 // 路由：#/ 书库 · #/book/<id> 朗读页。进度每读一段存一次（服务器 + 本机），换设备、关掉面板都接得上。
 
 import { createPlayer } from './player.js'
+import { initTalk } from './talk.js'
 
 const $ = sel => document.querySelector(sel)
 const app = $('#app')
@@ -73,6 +74,18 @@ const player = createPlayer({
   onState: s => renderTransport(s),
   onError: msg => toast(msg),
   onFinish: () => { toast('这本书读完了'); saveProgress(S.segs.length - 1) },
+})
+
+// 🎙 记心得、💬 问 AI、心得本、我的心得
+const talk = initTalk({
+  api, esc, toast, $, S, player, local,
+  openSheet: (...a) => openSheet(...a),
+  closeSheet: () => closeSheet(),
+  currentVoice: () => currentVoice(),
+  jumpTo: (seg) => {
+    if (player.state === 'playing' || player.state === 'loading') player.play(seg)
+    else player.seek(seg)
+  },
 })
 
 // ———————————————————— 进度 ————————————————————
@@ -149,6 +162,7 @@ async function showLibrary() {
       </div>
       <div class="faint" id="import-msg" style="margin-top:6px"></div>
     </div>
+    <div class="row lib-head"><b class="grow">书架</b><button class="btn" id="all-notes">我的心得</button></div>
     <div id="books"><div class="empty">正在读书库…</div></div>`
   const msg = $('#import-msg')
   const done = (b) => { msg.textContent = ''; location.hash = `#/book/${b.id}` }
@@ -180,6 +194,7 @@ async function showLibrary() {
   $('#go').onclick = byPath
   $('#path').onkeydown = e => { if (e.key === 'Enter') byPath() }
 
+  $('#all-notes').onclick = () => talk.openAllNotes()
   $('#q-go').onclick = () => runSearch($('#q').value)
   $('#q').onkeydown = e => { if (e.key === 'Enter') runSearch($('#q').value) }
   if (S.lastFound) renderFound(S.lastFound)
@@ -470,6 +485,7 @@ async function showBook(id) {
   renderTools()
   renderTransport('stopped')
   updateMediaSession()
+  talk.loadNotes()
 }
 
 function jumpChapter(k) {
@@ -495,6 +511,7 @@ function renderChapter(k) {
     })
   }
   $('#reader').innerHTML = html + (html ? '</p>' : '')
+  talk.markNotes()
   $('#prev-ch').disabled = k === 0
   $('#next-ch').disabled = k >= S.book.chapters.length - 1
 }
@@ -518,12 +535,15 @@ function mountDock() {
     <div class="where"><span class="ct" id="d-ch"></span><span id="d-pct"></span></div>
     <input type="range" id="d-range" min="0" value="0" aria-label="全书进度">
     <div class="transport">
+      <button class="side" id="d-ask" title="问 AI：刚听到的内容、人物、词语">💬<span>问 AI</span></button>
       <button class="skip" id="d-prev" title="上一段（←）">« 上一段</button>
       <button class="playbtn" id="d-play" aria-label="播放 / 暂停（空格）"></button>
       <button class="skip" id="d-next" title="下一段（→）">下一段 »</button>
+      <button class="side" id="d-note" title="记心得：按住说话">🎙<span>记心得</span></button>
     </div>
     <div class="tools">
       <button id="t-toc">目录</button>
+      <button id="t-notes">心得</button>
       <button id="t-voice">声音</button>
       <button id="t-rate">语速</button>
       <button id="t-sleep">定时</button>
@@ -537,6 +557,9 @@ function mountDock() {
   $('#d-prev').onclick = () => step(-1)
   $('#d-next').onclick = () => step(1)
   $('#t-toc').onclick = openToc
+  $('#t-notes').onclick = () => talk.openNotebook()
+  $('#d-ask').onclick = () => talk.openAsk()
+  $('#d-note').onclick = () => talk.openVoiceNote()
   $('#t-voice').onclick = openVoice
   $('#t-rate').onclick = openRate
   $('#t-sleep').onclick = openSleep

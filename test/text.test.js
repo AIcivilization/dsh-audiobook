@@ -123,3 +123,22 @@ test('入口：按扩展名分派；书名从文件名来；不支持的格式�
   await writeFile(empty, '   \n\n')
   await assert.rejects(extractDocument(empty), /没有可以朗读的文字/)
 })
+
+test('固定宽度折行的 TXT：接回段落；隔行排版也认得；中文一段一行的不动', async () => {
+  const { unwrapHardWrapped } = await import('../lib/segment.js')
+  const en = Array.from({ length: 12 }, () => 'It was a dark and stormy night; the rain fell in torrents, except at\noccasional intervals, when it was checked by a violent gust of wind.\n').join('\n')
+  const out = unwrapHardWrapped(en).split('\n')
+  assert.equal(out.length, 12)
+  assert.match(out[0], /except at occasional intervals/)
+  const zh = Array.from({ length: 12 }, () => '    在我自己，本以為現在是已經並非一個切迫而不能已于言的人了，但或者也還\n\n    未能忘懷于當日自己的寂寞的悲哀罷，所以有時候仍不免吶喊幾聲。\n').join('\n\n')
+  const z = unwrapHardWrapped(zh).split('\n')
+  assert.equal(z.length, 12)
+  assert.match(z[0], /也還未能忘懷/)
+  const plain = Array.from({ length: 30 }, (_, k) => `第${k}段，这是一整段中文，一段一行，没有折行。`).join('\n')
+  assert.equal(unwrapHardWrapped(plain), plain)
+})
+
+test('朗读段：同一段里的英文句子之间留空格', () => {
+  const { segs } = buildSegments([{ title: 'I', text: 'I\nIt was cold. Being unable to remove the chain, I jumped over. 天很冷。我跳了过去。' }])
+  assert.equal(segs[1], '\nIt was cold. Being unable to remove the chain, I jumped over.天很冷。我跳了过去。')
+})

@@ -218,13 +218,14 @@ test('古腾堡：标题后面的语言标出来（德语版……），中文�
   assert.deepEqual([r[0].title, r[0].snippet], ['Anna Karenina, 1. Band', '德语版'])
 })
 
-test('Internet Archive：结果解析，扫描版标出来；挑文件：TXT > EPUB > 扫描识别', () => {
+test('Internet Archive：结果解析，扫描版标出来；挑文件：EPUB > TXT > 扫描识别', () => {
   const r = parseArchiveSearch({ response: { docs: [
     { identifier: 'pg768', title: 'Wuthering Heights', creator: 'Emily Brontë', format: ['EPUB', 'Text'] },
     { identifier: 'scan1', title: ['Wuthering Heights'], creator: ['A', 'B'], format: ['DjVuTXT', 'Text PDF'], language: 'chi' },
   ] } })
   assert.deepEqual(r.map(x => [x.ref, x.author, x.scan, x.lang]), [['pg768', 'Emily Brontë', false, ''], ['scan1', 'A、B', true, 'zh']])
-  assert.deepEqual(pickArchiveFile([{ name: 'a.epub', format: 'EPUB' }, { name: 'a_djvu.txt', format: 'DjVuTXT' }, { name: 'a.txt', format: 'Text' }]), { name: 'a.txt', ext: '.txt' })
+  assert.deepEqual(pickArchiveFile([{ name: 'a.epub', format: 'EPUB' }, { name: 'a_djvu.txt', format: 'DjVuTXT' }, { name: 'a.txt', format: 'Text' }]), { name: 'a.epub', ext: '.epub' })
+  assert.deepEqual(pickArchiveFile([{ name: 'a_djvu.txt', format: 'DjVuTXT' }, { name: 'a.txt', format: 'Text' }]), { name: 'a.txt', ext: '.txt' })
   assert.deepEqual(pickArchiveFile([{ name: 'a_djvu.txt', format: 'DjVuTXT' }, { name: 'a.epub', format: 'EPUB', private: 'true' }]), { name: 'a_djvu.txt', ext: '.txt' })
   assert.equal(pickArchiveFile([{ name: 'a.pdf', format: 'Text PDF' }]), null)
 })

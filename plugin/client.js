@@ -167,13 +167,15 @@ window.__ModuleLoader__.load({
       return h('div', { style: { color: C.text } },
         h(HeaderBar),
         h('div', { style: { fontSize: 12.5, color: C.sub, lineHeight: 1.7, marginTop: 6 } },
-          '搜一本书（古腾堡计划、维基文库的公版书，书名、角色名、情节都能搜），或者导入自己的 TXT、EPUB、PDF、Word，在右侧栏读给你听。声音、语速可选，自动记住听到哪。'),
+          '搜一本书（古腾堡计划、维基文库等公版书源，书名、角色名、情节都能搜），或者导入自己的 TXT、EPUB、PDF、Word，在右侧栏读给你听。听的时候按住说话就能记心得、问 AI。'),
         h('div', { style: { marginTop: 14 } },
           !st ? h('div', { style: { fontSize: 12, color: C.sub } }, '正在检查…') : [
             h(Line, { key: 'b', ok: true }, '浏览器朗读：不用安装，用这台设备自带的语音'),
             h(Line, { key: 'e', ok: st.edge && st.edge.ready }, st.edge && st.edge.ready ? `微软 Edge 语音组件已装好${st.edge.version ? `（edge-tts ${st.edge.version}）` : ''}，要联网`
               : st.edge && st.edge.error ? st.edge.error + '（可在朗读面板的「声音」里重试）'
               : '微软 Edge 语音组件正在后台自动安装，一般几秒到一分钟'),
+            h(Line, { key: 'l', ok: Boolean(st.llm) }, st.llm ? `AI（问 AI、整理心得、读后感、猜书名）用：${st.llm}（DSH 的默认模型，可在插件配置里改）` : '没有可用的模型：先在 DSH 里选一个默认模型，问 AI、整理心得这些功能才能用'),
+            h(Line, { key: 'a', ok: st.asr && st.asr.ready }, st.asr && st.asr.ready ? '语音输入：识别模型已就绪（本机识别，声音不外传，只存文字）' : '语音输入：第一次用时下载识别模型（约 241 MB；用过 DSH 语音输入的就不用再下）'),
             h(Line, { key: 'k', ok: st.kokoro && st.kokoro.ready }, st.kokoro && st.kokoro.ready ? '本地中文语音模型已就绪（离线，不上传文字）' : '本地中文语音（离线）：第一次用时在「声音」里下载模型（约 147 MB）'),
           ]),
         h('div', { style: { fontSize: 13, fontWeight: 600, marginTop: 18, marginBottom: 6 } }, '怎么打开'),
