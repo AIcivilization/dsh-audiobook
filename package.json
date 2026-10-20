@@ -1,7 +1,7 @@
 {
   "name": "dsh-audiobook",
-  "version": "0.1.0",
-  "description": "Turn any book into an audiobook inside DSH: import EPUB / PDF / TXT / DOCX / Markdown and listen in the sidebar, with Microsoft Edge neural voices, offline Kokoro or your device's voices, adjustable speed, and resume where you left off. · 搜书听：导入一本书，在 DSH 右侧栏读给你听，音色、语速可选，自动记住听到哪。DeepSeek Harness (dsh) 插件。",
+  "version": "0.1.1",
+  "description": "Turn any book into an audiobook in DSH: EPUB / PDF / TXT / DOCX read aloud with Edge, Kokoro or system voices; remembers where you stopped. · 搜书听：导入一本书，在 DSH 里读给你听，音色语速可选，自动记住听到哪。",
   "keywords": [
     "dsh-plugin",
     "dsh-plugins",
