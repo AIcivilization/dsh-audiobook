@@ -7,6 +7,7 @@
 
 import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
+import { ensureEdge } from '../lib/edge.js'
 import { importDocument } from '../lib/importer.js'
 import { findFfmpeg } from '../lib/paths.js'
 import { createHandler } from '../lib/server.js'
@@ -54,6 +55,7 @@ async function main() {
   if (cmd === 'serve') {
     const port = Number(flags.port) || 4811
     const speech = createSpeech({ ffmpeg: () => findFfmpeg(flags.ffmpeg), threads: Number(flags.threads) || 2, workers: Number(flags.workers) || 2 })
+    ensureEdge().catch(e => console.error(e.message))
     const handle = createHandler({ prefix: PREFIX, pkgRoot: PKG_ROOT, speech, options: () => ({ ffmpeg: flags.ffmpeg }), status: () => ({ host: 'cli' }) })
     const server = createServer((req, res) => {
       if (req.url === '/' || req.url === '') { res.writeHead(302, { location: `${PREFIX}/panel` }); return res.end() }

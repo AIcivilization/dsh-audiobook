@@ -1,11 +1,15 @@
-// plugin/tools.js — 给 DSH 对话里的 AI 用的 4 个工具
+// plugin/tools.js — 给 DSH 对话里的 AI 用的 6 个工具
 //
-// 让用户在对话里说「把 ~/Downloads/三体.epub 导入搜书听」「我听到哪了？刚才那段讲了什么」
-// 「主角第一次出场在哪」「跳到第十章」，AI 自己导入、查进度、取出正文来讲，或者改收听位置。
+// 让用户在对话里说「帮我找那本主角叫贾宝玉的书来听」「把 ~/Downloads/三体.epub 导入搜书听」
+// 「我听到哪了？刚才那段讲了什么」「主角第一次出场在哪」「跳到第十章」，
+// AI 自己搜书下书、导入、查进度、取出正文来讲，或者改收听位置。
+// 搜书时由对话里的 AI 自己判断是哪本书（它本身就是大模型），工具只管在书源里按书名搜。
 // 直接写 DSH 工具注册表认的原始格式（标准 JSON Schema 子集），不依赖 defineTool：
 // 插件包从自己的目录加载时 import 不到 @deepseek-ai/dsh-tools，而 {type:'json'} 这种简写只有 defineTool 认。
 
-import { importDocument } from '../lib/importer.js'
+import { findBooks } from '../lib/finder.js'
+import { importDocument, importFromSource } from '../lib/importer.js'
+import { SOURCES } from '../lib/sources.js'
 import { chapterOf, checkId, getBook, getProgress, getSegs, listBooks, setProgress } from '../lib/store.js'
 
 const ANY_OBJECT = { type: 'object' }
@@ -56,6 +60,53 @@ function findChapter(book, query) {
 
 export async function buildToolDefinitions() {
   return [
+    {
+      name: 'audiobook_search',
+      description: '在公版书和授权免费的书源里搜书：古腾堡计划（7 万多本公版书，英文为主，也有中文古籍）、中文 / 英文维基文库（公版古籍、民国作品）。' +
+        '用户只记得角色名或情节时，先自己判断是哪本书，再用书名搜；中文古籍可以再用繁体书名搜一次（古腾堡收的多是繁体）。' +
+        '受版权保护的现代书这里搜不到，照实告诉用户，建议买正版电子书后用 audiobook_import 导入。找到后用 audiobook_download 下载。',
+      parameters: params({
+        query: { type: 'string', required: true, description: '书名、作者或原文书名' },
+      }),
+      output: {
+        schema: ANY_OBJECT,
+        render: (_a, v) => [{
+          type: 'text',
+          text: v.results.length
+            ? v.results.map(r => `- 《${r.title}》${r.author ? ` ${r.author}` : ''} [${r.sourceLabel}] source=${r.source} ref=${r.ref}${r.snippet ? `：${r.snippet}` : ''}`).join('\n')
+            : `没搜到「${v.query}」。这些书源只有公版书和授权免费的书。` + (v.failed.length ? `（${v.failed.join('、')}暂时连不上）` : ''),
+        }],
+      },
+      async execute(args) {
+        const r = await findBooks(String(args.query || ''))
+        return plain({ ...r, results: r.results.slice(0, 12) })
+      },
+    },
+
+    {
+      name: 'audiobook_download',
+      description: '把 audiobook_search 搜到的一本书下载进「搜书听」书架，下载完就能在右侧栏听。维基文库的整部大书导出可能要一两分钟。',
+      parameters: params({
+        source: { type: 'string', required: true, enum: Object.keys(SOURCES), description: 'audiobook_search 结果里的 source' },
+        ref: { type: 'string', required: true, description: 'audiobook_search 结果里的 ref' },
+        title: { type: 'string', description: '书名（可省略，默认从书里读）' },
+        author: { type: 'string', description: '作者（书里没写作者时用它）' },
+      }),
+      output: {
+        schema: ANY_OBJECT,
+        render: (_a, v) => [{
+          type: 'text',
+          text: `《${v.title}》${v.author ? ` ${v.author}` : ''}（id: ${v.id}）已加入书架：${v.chapters} 章，${v.chars < 1000 ? `${v.chars} 字` : `约 ${Math.round(v.chars / 1000)} 千字`}。${OPEN_HINT}`,
+        }],
+      },
+      async execute(args) {
+        return plain(await importFromSource(String(args.source || ''), String(args.ref || ''), {
+          title: typeof args.title === 'string' ? args.title : '',
+          author: typeof args.author === 'string' ? args.author : '',
+        }))
+      },
+    },
+
     {
       name: 'audiobook_import',
       description: '把本机的一本书或文档（TXT、EPUB、PDF、DOCX、Markdown、HTML、RTF）导入「搜书听」，导入后可以在右侧栏朗读。',

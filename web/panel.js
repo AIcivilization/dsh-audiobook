@@ -126,6 +126,15 @@ async function showLibrary() {
   const remote = !['127.0.0.1', 'localhost', '::1', '[::1]'].includes(location.hostname)
   app.innerHTML = `
     <div class="card">
+      <h3>搜书</h3>
+      <div class="row">
+        <input class="input grow" id="q" placeholder="书名、作者，或者记得的角色名、情节" value="${esc(S.lastQuery || '')}">
+        <button class="btn primary" id="q-go">搜索</button>
+      </div>
+      <div class="faint" style="margin-top:6px">在古腾堡计划、维基文库这些公版和授权免费的书源里找，找到直接加入书架。受版权保护的现代书这里没有。</div>
+      <div id="found"></div>
+    </div>
+    <div class="card">
       <div class="drop" id="drop">
         <div class="big">导入一本书</div>
         <div class="muted small">${remote ? '从这台设备（手机、电脑）上选一本书' : '把文件拖到这里，或'} <button class="btn ${remote ? 'primary' : ''}" id="pick">选择文件</button></div>
@@ -169,8 +178,18 @@ async function showLibrary() {
   $('#go').onclick = byPath
   $('#path').onkeydown = e => { if (e.key === 'Enter') byPath() }
 
+  $('#q-go').onclick = () => runSearch($('#q').value)
+  $('#q').onkeydown = e => { if (e.key === 'Enter') runSearch($('#q').value) }
+  if (S.lastFound) renderFound(S.lastFound)
+  loadBooks()
+}
+
+/** 书单 */
+async function loadBooks() {
   let books = []
-  try { books = (await api('books')).books } catch (e) { $('#books').innerHTML = `<div class="empty">${esc(e.message)}</div>`; return }
+  try { books = (await api('books')).books } catch (e) { if ($('#books')) $('#books').innerHTML = `<div class="empty">${esc(e.message)}</div>`; return }
+  // 等书单的时候用户可能已经点进某本书了
+  if (!$('#books')) return
   $('#books').innerHTML = books.length ? books.map(b => `
     <div class="card book" data-id="${esc(b.id)}">
       <div class="cover">${esc([...b.title][0] || '书')}</div>
@@ -179,8 +198,97 @@ async function showLibrary() {
         <div class="meta">${esc(b.author ? b.author + ' · ' : '')}${b.listenedAt ? `听到「${esc(b.chapterTitle)}」 · ${b.percent}%` : `${b.chapters} 章 · 约 ${Math.max(1, Math.round(b.chars / 10000))} 万字`} · ${ago(b.listenedAt)}</div>
         <div class="bar"><i style="width:${b.percent}%"></i></div>
       </div>
-    </div>`).join('') : '<div class="empty">书库还是空的。导入一本书，就能开始听。</div>'
-  for (const el of document.querySelectorAll('.book')) el.onclick = () => { location.hash = `#/book/${el.dataset.id}` }
+      <button class="icon-btn more" data-more="${esc(b.id)}" title="删除、改书名…" aria-label="更多操作">⋯</button>
+    </div>`).join('') : '<div class="empty">书库还是空的。导入一本书，或者在上面搜一本，就能开始听。</div>'
+  for (const el of document.querySelectorAll('.book')) {
+    el.onclick = (e) => {
+      if (e.target.closest('[data-more]')) return
+      location.hash = `#/book/${el.dataset.id}`
+    }
+  }
+  for (const btn of document.querySelectorAll('[data-more]')) {
+    btn.onclick = () => openBookMenu(books.find(b => b.id === btn.dataset.more))
+  }
+}
+
+// ———————————————————— 搜书 ————————————————————
+
+async function runSearch(q) {
+  q = String(q || '').trim()
+  if (!q) return
+  S.lastQuery = q
+  const box = $('#found')
+  box.innerHTML = '<div class="faint" style="margin-top:10px">正在搜…（让 AI 猜书名、再去各书源找，大约几秒到十几秒）</div>'
+  try {
+    S.lastFound = await api(`search?q=${encodeURIComponent(q)}`)
+    renderFound(S.lastFound)
+  } catch (e) { box.innerHTML = `<div class="note" style="color:var(--bad)">${esc(e.message)}</div>` }
+}
+
+function renderFound(f) {
+  const box = $('#found')
+  if (!box) return
+  const guesses = f.guesses.length ? `<div class="note">AI 认为你找的可能是：${f.guesses.map(g =>
+    `<b>《${esc(g.title || g.original)}》</b>${g.author ? esc(g.author) : ''}${g.found ? '' : '<span class="faint">（书源里没有，多半还在版权期内）</span>'}`).join('；')}</div>` : ''
+  const notes = [f.note, f.failed.length ? `${f.failed.join('、')}暂时连不上，结果可能不全` : ''].filter(Boolean).map(t => `<div class="faint">${esc(t)}</div>`).join('')
+  const list = f.results.length ? f.results.map((r, k) => `
+    <div class="hit">
+      <div class="grow">
+        <div class="t">${esc(r.title)} <span class="badge">${esc(r.sourceLabel)}</span>${r.guess >= 0 ? ' <span class="badge ok">AI 猜的</span>' : ''}</div>
+        <div class="meta">${esc(r.author || '')}${r.snippet ? `${r.author ? ' · ' : ''}${esc(r.snippet)}` : ''}</div>
+      </div>
+      <a class="link" href="${esc(r.link)}" target="_blank" rel="noopener">看看</a>
+      <button class="btn" data-hit="${k}">加入书架</button>
+    </div>`).join('') : `<div class="note">没搜到「${esc(f.query)}」。可以换个书名试试：中文古籍试试繁体，外国书试试原文书名。</div>`
+  box.innerHTML = guesses + notes + `<div class="hits">${list}</div>`
+  for (const b of box.querySelectorAll('[data-hit]')) {
+    b.onclick = async () => {
+      const r = f.results[Number(b.dataset.hit)]
+      b.disabled = true
+      b.textContent = r.source.startsWith('wikisource') ? '下载中…（整部导出可能要一两分钟）' : '下载中…'
+      try {
+        const j = await api('download', { source: r.source, ref: r.ref, author: r.author || '' })
+        b.textContent = '已加入，去听 ›'
+        b.disabled = false
+        b.classList.add('primary')
+        b.onclick = () => { location.hash = `#/book/${j.book.id}` }
+        toast(`《${j.book.title}》已加入书架`)
+        loadBooks()
+      } catch (e) {
+        b.disabled = false
+        b.textContent = '重试'
+        toast(e.message)
+      }
+    }
+  }
+}
+
+/** 书单里一本书的操作：继续听、改书名 / 作者、从头听、删除 */
+function openBookMenu(b) {
+  if (!b) return
+  openSheet(`《${b.title}》`, `
+    <div class="faint" style="margin-bottom:10px">${esc(b.author ? b.author + ' · ' : '')}${esc(b.format.toUpperCase())} · ${b.chapters} 章 · ${b.listenedAt ? `听到「${esc(b.chapterTitle)}」${b.percent}%` : '还没听过'}</div>
+    <div class="field"><label>书名</label><input class="input" id="m-title" value="${esc(b.title)}"></div>
+    <div class="field"><label>作者</label><input class="input" id="m-author" value="${esc(b.author)}"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn primary" id="m-open">${b.listenedAt ? '继续听' : '开始听'}</button>
+      <button class="btn" id="m-save">保存书名和作者</button>
+      <button class="btn" id="m-reset" ${b.seg ? '' : 'disabled'}>从头开始</button>
+      <span class="grow"></span>
+      <button class="btn danger" id="m-del">删除</button>
+    </div>`, () => {
+    $('#m-open').onclick = () => { closeSheet(); location.hash = `#/book/${b.id}` }
+    $('#m-save').onclick = async () => {
+      try { await api('rename', { id: b.id, title: $('#m-title').value, author: $('#m-author').value }); closeSheet(); loadBooks() } catch (e) { toast(e.message) }
+    }
+    $('#m-reset').onclick = async () => {
+      try { await api('progress', { id: b.id, seg: 0 }); local.set('pos:' + b.id, { seg: 0, at: Date.now() }); closeSheet(); loadBooks(); toast('已回到开头') } catch (e) { toast(e.message) }
+    }
+    $('#m-del').onclick = async () => {
+      if (!confirm(`删除《${b.title}》？收听进度和声音缓存也会删掉（原文件不受影响）。`)) return
+      try { await api('delete', { id: b.id }); closeSheet(); loadBooks(); toast('已删除') } catch (e) { toast(e.message) }
+    }
+  })
 }
 
 // ———————————————————— 朗读页 ————————————————————
@@ -494,14 +602,14 @@ async function openVoice() {
         <p class="note">不用安装，用的是这台设备自带的语音，声音不出这台设备。Mac 上想要更自然的声音：系统设置 → 辅助功能 → 朗读内容 → 系统声音 → 管理声音…，下载带「高级」或「增强」的中文声音。手机锁屏后浏览器朗读可能会停，锁屏听用微软 Edge 或本地离线。</p>`
         : '<p class="note">这个浏览器没有提供朗读声音。换成微软 Edge 或本地离线。</p>'
     } else if (tab === 'edge') {
-      const ready = S.status.edge && S.status.edge.ready
-      inner = ready ? `<div class="field"><label>微软在线神经网络语音</label>
+      const e = S.status.edge || {}
+      inner = e.ready ? `<div class="field"><label>微软在线神经网络语音</label>
         <select class="input" id="v-sel">${S.voices.edge.voices.map(v => `<option value="${esc(v.id)}" ${active.engine === 'edge' && v.id === active.voice ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</select></div>
         <div class="row"><button class="btn primary" id="v-use">用这个声音</button><button class="btn" id="v-up">更新 Edge 语音组件</button></div>
         <p class="note">最自然的中文朗读。要联网：文字会发到微软的服务器合成。这不是微软公开的正式接口，可能哪天失效；失效时先点「更新 Edge 语音组件」。</p>`
-        : `<p class="note">要先装 Edge 语音组件（开源的 edge-tts，装在插件自己的 Python 虚拟环境里，约 10 MB，要有 Python 3）。装好后要联网使用：文字会发到微软的服务器合成。</p>
-        <div class="row"><button class="btn primary" id="v-inst">安装 Edge 语音组件</button></div>`
-    } else {
+        : e.error ? `<p class="note" style="color:var(--bad)">${esc(e.error)}</p><div class="row"><button class="btn primary" id="v-inst">重试安装</button></div>
+        <p class="note">Edge 语音组件是开源的 edge-tts，插件会自己装在 ~/.dsh/dsh-audiobook 里，不需要管理员权限。</p>`
+        : `<p class="note">正在自动安装 Edge 语音组件（开源的 edge-tts，装在插件自己的目录里），一般几秒到一分钟。装好就能用，不用做任何事。</p><div class="bar"><i style="width:60%"></i></div>`    } else {
       const k = S.status.kokoro || {}
       const d = k.download
       inner = k.ready ? `<div class="field"><label>本地离线中文语音（Kokoro，100 个声音）</label>
@@ -521,9 +629,17 @@ async function openVoice() {
     const inst = $('#v-inst') || $('#v-up')
     if (inst) inst.onclick = async () => {
       inst.disabled = true
-      inst.textContent = '正在安装…（约半分钟）'
+      inst.textContent = '正在安装…（几秒到一分钟）'
       try { const r = await api('edge/install', {}); S.status.edge = { ready: r.ready, version: r.version }; toast('Edge 语音组件装好了') } catch (e) { toast(e.message) }
       draw()
+    }
+    if (tab === 'edge' && !(S.status.edge || {}).ready && !(S.status.edge || {}).error) {
+      clearInterval(S.pollStatus)
+      S.pollStatus = setInterval(async () => {
+        try { S.status = await api('status') } catch { return }
+        const ee = S.status.edge || {}
+        if (ee.ready || ee.error) { clearInterval(S.pollStatus); S.voices = await api('voices'); draw(); renderTools() }
+      }, 2000)
     }
     const dl = $('#v-dl')
     if (dl) dl.onclick = async () => {

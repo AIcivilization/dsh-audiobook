@@ -3,18 +3,23 @@
 // 1. 把朗读面板和接口挂到 dsh 自己的 webServer 上：/api-dsh-audiobook/*
 //    插件路由不会自动过 dsh 的登录校验：每个请求先问 connection.requestRejection()（和官方 open-in-app 一样：
 //    Host/Origin 防 DNS 重绑定和跨站，再查登录令牌 cookie）；老版本没有这个服务就只放行本机
-// 2. 注册 AI 工具（plugin/tools.js）：在对话里导入书、查进度、读出刚听过的内容、跳到某一章
+// 2. 注册 AI 工具（plugin/tools.js）：在对话里搜书下书、导入书、查进度、读出刚听过的内容、跳到某一章
+// 3. 面板里搜书时，用 DSH 里配好的模型（ctx.llm）按角色名、情节猜书名：插件配置里的 provider/model，没有就用 DSH 的默认模型
 //
 // 本地语音合成在子进程里跑（lib/kokoro-worker.js），不卡 DSH。
 //
 // 可选配置（profile 的 cordis.patch.yml 里给 id: dsh-audiobook 加 config）：
 //   ffmpeg    ffmpeg 的完整路径（可选：有就把本地合成的声音压成 MP3）
 //   threads   每个本地语音进程的线程数，默认 2
+//   provider / model   搜书时猜书名用的模型（两个都填才生效；不填跟 DSH 的默认模型）
+//   edge      false：不要自动安装微软 Edge 语音组件（默认会在后台自动装）
 //   workers   同时开几个本地语音进程，默认 2（每个占 300–400 MB 内存；VPS 内存小就设 1）
 
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { ensureEdge } from '../lib/edge.js'
+import { dshLlm } from '../lib/llm.js'
 import { findFfmpeg } from '../lib/paths.js'
 import { createHandler } from '../lib/server.js'
 import { createSpeech } from '../lib/speech.js'
@@ -42,6 +47,30 @@ export function apply(ctx, config = {}) {
   let version = ''
   readPkgJson().then(p => { version = p.version || '' })
 
+  // 模型：每次用时取当前的（用户在 DSH 里换了默认模型就跟着换）
+  let llm
+  let defaults
+  const route = () => {
+    if (cfg.provider && cfg.model) return { provider: cfg.provider, model: cfg.model }
+    try {
+      const sel = defaults && defaults.currentSelection()
+      return sel && sel.provider && sel.model ? { provider: sel.provider, model: sel.model } : null
+    } catch { return null }
+  }
+  ctx.inject(['llm'], (c) => {
+    c.effect(() => {
+      llm = c.llm || (c.get && c.get('llm'))
+      return () => { llm = undefined }
+    })
+  })
+  ctx.inject(['agentDefaultModel'], (c) => {
+    c.effect(() => {
+      defaults = c.agentDefaultModel || (c.get && c.get('agentDefaultModel'))
+      return () => { defaults = undefined }
+    })
+  })
+  const model = () => (llm && typeof llm.stream === 'function' && route() ? dshLlm(llm, route) : null)
+
   const speech = createSpeech({ ffmpeg: () => findFfmpeg(cfg.ffmpeg), threads: cfg.threads || 2, workers: cfg.workers || 2 })
   // 插件卸载 / DSH 退出：停掉合成子进程
   const stopAll = () => speech.stop()
@@ -65,8 +94,12 @@ export function apply(ctx, config = {}) {
     prefix: PREFIX,
     pkgRoot: PKG_ROOT,
     speech,
+    llm: model,
     options: () => ({ ffmpeg: cfg.ffmpeg }),
-    status: () => ({ host: 'dsh', version }),
+    status: () => {
+      const r = route()
+      return { host: 'dsh', version, llm: llm && r ? `${r.provider}/${r.model}` : '' }
+    },
   })
 
   let connection
@@ -87,6 +120,13 @@ export function apply(ctx, config = {}) {
     return true
   }
   const guarded = (req, res) => (rejected(req, res) ? undefined : handle(req, res))
+
+  // 微软 Edge 语音组件：没装就在后台自动装（几秒到一分钟），用户不用点
+  if (cfg.edge !== false) {
+    const t = setTimeout(() => ensureEdge().catch(e => { try { ctx.logger ? ctx.logger.warn(e.message) : console.warn(e.message) } catch { /* 忽略 */ } }), 3000)
+    if (t.unref) t.unref()
+    if (typeof ctx.effect === 'function') ctx.effect(() => () => clearTimeout(t))
+  }
 
   ctx.inject(['webServer'], (c) => {
     const ws = c.webServer || (c.get && c.get('webServer'))

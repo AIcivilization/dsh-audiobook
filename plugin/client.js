@@ -167,16 +167,18 @@ window.__ModuleLoader__.load({
       return h('div', { style: { color: C.text } },
         h(HeaderBar),
         h('div', { style: { fontSize: 12.5, color: C.sub, lineHeight: 1.7, marginTop: 6 } },
-          '导入一本书（TXT、EPUB、PDF、Word、Markdown、网页），在右侧栏读给你听。声音、语速可选，自动记住听到哪。'),
+          '搜一本书（古腾堡计划、维基文库的公版书，书名、角色名、情节都能搜），或者导入自己的 TXT、EPUB、PDF、Word，在右侧栏读给你听。声音、语速可选，自动记住听到哪。'),
         h('div', { style: { marginTop: 14 } },
           !st ? h('div', { style: { fontSize: 12, color: C.sub } }, '正在检查…') : [
             h(Line, { key: 'b', ok: true }, '浏览器朗读：不用安装，用这台设备自带的语音'),
-            h(Line, { key: 'e', ok: st.edge && st.edge.ready }, st.edge && st.edge.ready ? `微软 Edge 语音组件已装好${st.edge.version ? `（edge-tts ${st.edge.version}）` : ''}，要联网` : '微软 Edge 语音（最自然）：在朗读面板的「声音」里点「安装 Edge 语音组件」（要有 Python 3）'),
+            h(Line, { key: 'e', ok: st.edge && st.edge.ready }, st.edge && st.edge.ready ? `微软 Edge 语音组件已装好${st.edge.version ? `（edge-tts ${st.edge.version}）` : ''}，要联网`
+              : st.edge && st.edge.error ? st.edge.error + '（可在朗读面板的「声音」里重试）'
+              : '微软 Edge 语音组件正在后台自动安装，一般几秒到一分钟'),
             h(Line, { key: 'k', ok: st.kokoro && st.kokoro.ready }, st.kokoro && st.kokoro.ready ? '本地中文语音模型已就绪（离线，不上传文字）' : '本地中文语音（离线）：第一次用时在「声音」里下载模型（约 147 MB）'),
           ]),
         h('div', { style: { fontSize: 13, fontWeight: 600, marginTop: 18, marginBottom: 6 } }, '怎么打开'),
         h('div', { style: { fontSize: 12.5, color: C.sub, lineHeight: 1.7 } },
-          '朗读面板在对话页的右侧栏：打开右侧栏，选「搜书听」。也可以在对话里直接说「把 <文件路径> 导入搜书听」「我听到哪了？刚才那段讲了什么」「跳到第十章」。'),
+          '朗读面板在对话页的右侧栏：打开右侧栏，选「搜书听」。也可以在对话里直接说「帮我找那本主角叫贾宝玉的书来听」「把 <文件路径> 导入搜书听」「我听到哪了？刚才那段讲了什么」「跳到第十章」。'),
         sidebarRightApi ? h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' } },
           h(Btn, { onClick: open }, '在右侧栏打开'),
           h(Btn, { onClick: () => window.open(PANEL, '_blank') }, '新窗口打开'),

@@ -49,7 +49,9 @@ export function makeEpub({ title = '测试之书', author = '佚名', chapters }
   const spine = chapters.map((_, k) => `<itemref idref="c${k}"/>`).join('')
   files['OEBPS/content.opf'] = `<?xml version="1.0"?><package><metadata><dc:title>${title}</dc:title><dc:creator>${author}</dc:creator></metadata>
     <manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>${items}</manifest><spine>${spine}</spine></package>`
-  files['OEBPS/nav.xhtml'] = `<html><body><nav epub:type="toc"><ol>${chapters.map((c, k) => (c.toc ? `<li><a href="text/c${k}.xhtml">${c.toc}</a></li>` : '')).join('')}</ol></nav></body></html>`
+  // 目录条目：toc 指到文件；tocs: [[锚点, 标题], …] 指到文件里的锚点（锚点为空就是文件本身）
+  const li = (k, frag, title) => `<li><a href="text/c${k}.xhtml${frag ? '#' + frag : ''}">${title}</a></li>`
+  files['OEBPS/nav.xhtml'] = `<html><body><nav epub:type="toc"><ol>${chapters.map((c, k) => (c.tocs ? c.tocs.map(([f, t]) => li(k, f, t)).join('') : c.toc ? li(k, '', c.toc) : '')).join('')}</ol></nav></body></html>`
   chapters.forEach((c, k) => { files[`OEBPS/text/c${k}.xhtml`] = `<html><head><title>x</title><style>p{}</style></head><body>${c.html}</body></html>` })
   return makeZip(files)
 }

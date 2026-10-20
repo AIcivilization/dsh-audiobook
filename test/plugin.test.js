@@ -48,7 +48,7 @@ const BOOK_TXT = `第一章 出发\n${'清晨，他背起行囊走出家门。'.
 
 before(async () => {
   ctx = fakeCtx()
-  plugin.apply(ctx, {})
+  plugin.apply(ctx, { edge: false }) // 测试里别真去装 Edge 组件
   await new Promise(r => setTimeout(r, 50)) // 工具注册是异步的
   const route = ctx.services.webServer.routes[0]
   server = createServer((req, res) => route.handler(req, res))
@@ -61,12 +61,12 @@ after(async () => {
   await rm(home, { recursive: true, force: true })
 })
 
-test('挂一个前缀路由，注册 4 个工具', () => {
+test('挂一个前缀路由，注册 6 个工具', () => {
   const routes = ctx.services.webServer.routes
   assert.equal(routes.length, 1)
   assert.equal(routes[0].kind, 'prefix')
   assert.equal(routes[0].path, '/api-dsh-audiobook')
-  assert.deepEqual(ctx.services.tools.defs.map(d => d.name), ['audiobook_import', 'audiobook_books', 'audiobook_text', 'audiobook_goto'])
+  assert.deepEqual(ctx.services.tools.defs.map(d => d.name), ['audiobook_search', 'audiobook_download', 'audiobook_import', 'audiobook_books', 'audiobook_text', 'audiobook_goto'])
   for (const d of ctx.services.tools.defs) assert.equal(d.parameters.type, 'object')
 })
 
