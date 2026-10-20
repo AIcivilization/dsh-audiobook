@@ -67,7 +67,7 @@ const S = {
 }
 
 const player = createPlayer({
-  audios: [$('#a0'), $('#a1')],
+  audio: $('#player'),
   api,
   onSeg: seg => onSeg(seg),
   onState: s => renderTransport(s),
@@ -121,16 +121,19 @@ async function showLibrary() {
   app.className = ''
   document.querySelector('.dock')?.remove()
   closeSheet()
+  // 面板开在别的机器上（比如手机打开 VPS 上的 DSH）时，「填路径」填的是服务器上的路径，容易误会：
+  // 这时把「选择文件」当主按钮，路径框说清楚是服务器上的
+  const remote = !['127.0.0.1', 'localhost', '::1', '[::1]'].includes(location.hostname)
   app.innerHTML = `
     <div class="card">
       <div class="drop" id="drop">
         <div class="big">导入一本书</div>
-        <div class="muted small">把文件拖到这里，或 <button class="btn" id="pick">选择文件</button></div>
+        <div class="muted small">${remote ? '从这台设备（手机、电脑）上选一本书' : '把文件拖到这里，或'} <button class="btn ${remote ? 'primary' : ''}" id="pick">选择文件</button></div>
         <div class="faint" style="margin-top:6px">TXT · EPUB · PDF · DOCX · Markdown · HTML · RTF</div>
         <input type="file" id="file" hidden accept=".txt,.text,.md,.markdown,.html,.htm,.xhtml,.epub,.docx,.pdf,.rtf,.doc">
       </div>
       <div class="row" style="margin-top:10px">
-        <input class="input grow" id="path" placeholder="或者填这台电脑上的文件路径，如 ~/Downloads/书.epub">
+        <input class="input grow" id="path" placeholder="${remote ? '或者填服务器上的文件路径' : '或者填这台电脑上的文件路径，如 ~/Downloads/书.epub'}">
         <button class="btn" id="go">导入</button>
       </div>
       <div class="faint" id="import-msg" style="margin-top:6px"></div>

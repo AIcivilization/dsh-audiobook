@@ -63,7 +63,7 @@ dsh plugin --profile desktop add dsh-audiobook
 dsh plugin --profile desktop add dsh-audiobook
 ```
 
-重新打开 DSH，在对话页打开右侧栏，选「搜书听 · 读书给你听」。VPS 上的 DSH 一样装（以运行 DSH 的用户执行，再重启 DSH），手机浏览器打开 `https://<你的域名>/api-dsh-audiobook/panel` 就能听。
+重新打开 DSH，在对话页打开右侧栏，选「搜书听 · 读书给你听」。VPS 上的 DSH 一样装（以运行 DSH 的用户执行，再重启 DSH），手机浏览器打开 `https://<你的域名>/api-dsh-audiobook/panel` 就能听，点「选择文件」直接从手机里挑书（文件只传一次，服务器取出文字后就删掉原文件）。VPS 上建议用微软 Edge 或浏览器朗读：本地离线语音很吃 CPU，小 VPS 跟不上。前面有 nginx 的话，把 `client_max_body_size` 调大（默认只放行 1 MB）。
 
 ffmpeg 可选：有就把本地语音压成 MP3（隔着 VPS 用手机听更流畅），没有就直接给 WAV。
 
@@ -112,4 +112,4 @@ npm test
 - `lib/edge.js` Edge 语音组件（edge-tts）的安装和调用；`lib/kokoro.js` + `lib/kokoro-worker.js` 本地中文语音的常驻子进程
 - `lib/store.js` 书库、进度、设置（原子写入的 JSON）；`lib/server.js` 面板接口
 - `plugin/` DSH 宿主端（路由、AI 工具、更新卸载）和界面入口（右侧栏、设置）；路由先过 DSH 的 `connection.requestRejection()` 登录校验
-- `web/` 朗读面板（原生 JS 模块，无构建）：`panel.js` 书库和朗读页，`player.js` 一段接一段地读（两个 `<audio>` 轮换预载，段间几乎不停顿）
+- `web/` 朗读面板（原生 JS 模块，无构建）：`panel.js` 书库和朗读页，`player.js` 一段接一段地读（始终用同一个 `<audio>`，下一段提前下载进内存：段间几乎不停顿，iPhone 锁屏后也能接着读）

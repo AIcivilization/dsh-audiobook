@@ -4,14 +4,16 @@
 //   browser  浏览器自带的 speechSynthesis（不用装，声音来自这台设备：Mac 上就是系统语音）
 //   edge     服务器经 edge-tts 合成（微软在线神经网络语音）
 //   kokoro   服务器本地离线合成
-// 服务器合成的两种用两个 <audio> 轮换：放这一段时，下一段已经在另一个里预载好，段和段之间几乎不停顿。
+// 服务器合成的两种始终用同一个 <audio>，读完一段就换 src 接着放：iPhone 锁屏后，Safari 只允许已经在出声的那个
+// <audio> 继续播放，换一个新的会被拦下。为了段间不停顿，放这一段时就把下一段整个下载成 blob，
+// 轮到它时直接从内存开始放，不用等网络（锁屏时等网络，iOS 可能趁这个空档把声音挂起）。
 // 语速：audio 用 playbackRate（保持音高），浏览器朗读用 utterance.rate。
 
 const SERVER = ['edge', 'kokoro']
 
 /**
  * @param {object} o
- * @param {HTMLAudioElement[]} o.audios 两个 audio 元素
+ * @param {HTMLAudioElement} o.audio
  * @param {(path: string, body?: object) => Promise<any>} o.api
  * @param {(seg: number) => void} o.onSeg 开始读某一段
  * @param {(state: 'playing'|'paused'|'loading'|'stopped') => void} o.onState
@@ -23,8 +25,9 @@ export function createPlayer(o) {
     book: null, segs: [], seg: 0, engine: 'browser', voice: '', rate: 1,
     state: 'stopped', gen: 0,
   }
-  let cur = 0 // 正在用的 audio
-  let standby = null // { seg, url, gen } 另一个 audio 里预载好的
+  const audio = o.audio
+  let pre = null // 下一段的预载：{ seg, gen, promise: Promise<blob URL> }
+  let playingBlob = '' // 正在放的 blob URL（换段后释放）
   let browserVoices = []
 
   const setState = (s) => { st.state = s; o.onState(s) }
@@ -59,52 +62,59 @@ export function createPlayer(o) {
   }
 
   // —— 服务器合成 ——
-  const audio = k => o.audios[k]
   async function urlFor(seg) {
     const j = await o.api('speak', { id: st.book.id, seg, engine: st.engine, voice: st.voice, ahead: 4 })
     return j.url
   }
 
-  /** 把下一段预载进另一个 audio */
+  const release = (u) => { if (u && u.startsWith('blob:')) URL.revokeObjectURL(u) }
+  function dropPre() {
+    if (pre) pre.promise.then(release, () => {})
+    pre = null
+  }
+
+  /** 把下一段整个下载进内存 */
   function preload(seg, gen) {
     if (seg >= st.segs.length) return
-    urlFor(seg).then((url) => {
-      if (gen !== st.gen) return
-      const a = audio(1 - cur)
-      a.src = url
-      a.load()
-      standby = { seg, url, gen }
-    }).catch(() => { /* 轮到它时再取，会报出真正的错 */ })
+    const promise = urlFor(seg)
+      .then(url => fetch(url, { credentials: 'same-origin' }))
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob() })
+      .then(b => URL.createObjectURL(b))
+    promise.catch(() => { /* 轮到它时再取，会报出真正的错 */ })
+    pre = { seg, gen, promise }
   }
 
   async function speakServer(seg, gen) {
     setState('loading')
-    let a
-    if (standby && standby.gen === gen && standby.seg === seg) {
-      cur = 1 - cur
-      a = audio(cur)
-    } else {
-      let url
-      try { url = await urlFor(seg) } catch (e) {
+    let src = ''
+    // 预载好（或正在预载）的就用它；失败了再直接问服务器
+    if (pre && pre.gen === gen && pre.seg === seg) {
+      const p = pre.promise
+      pre = null
+      try { src = await p } catch { src = '' }
+    } else dropPre()
+    if (!src) {
+      try { src = await urlFor(seg) } catch (e) {
         if (gen !== st.gen) return
         o.onError(e.message)
         return setState('paused')
       }
-      if (gen !== st.gen) return
-      a = audio(cur)
-      a.src = url
     }
-    standby = null
-    audio(1 - cur).pause()
-    a.playbackRate = st.rate
-    a.preservesPitch = true
-    a.onended = () => { if (gen === st.gen && st.state === 'playing') next() }
-    a.onerror = () => {
+    if (gen !== st.gen) { release(src); return }
+    release(playingBlob)
+    playingBlob = src
+    audio.src = src
+    // 换 src 后有的浏览器会把语速重置成 defaultPlaybackRate：两个都设
+    audio.defaultPlaybackRate = st.rate
+    audio.playbackRate = st.rate
+    audio.preservesPitch = true
+    audio.onended = () => { if (gen === st.gen && st.state === 'playing') next() }
+    audio.onerror = () => {
       if (gen !== st.gen) return
       o.onError('这一段的声音没放出来，点播放再试一次')
       setState('paused')
     }
-    try { await a.play() } catch (e) {
+    try { await audio.play() } catch (e) {
       if (gen !== st.gen) return
       // 浏览器要求先点一下页面才能出声
       o.onError(e && e.name === 'NotAllowedError' ? '点一下播放按钮开始' : `播放失败：${e.message}`)
@@ -117,14 +127,16 @@ export function createPlayer(o) {
 
   function start(seg) {
     st.gen++
-    standby = null
+    // 预载的那段正好是要读的这段（读完自动接下一段），留着给 speakServer 用
+    if (pre && pre.seg === seg) pre.gen = st.gen
+    else dropPre()
     st.seg = Math.max(0, Math.min(st.segs.length - 1, seg))
     o.onSeg(st.seg)
     if (SERVER.includes(st.engine)) {
       if ('speechSynthesis' in window) speechSynthesis.cancel()
       speakServer(st.seg, st.gen)
     } else {
-      for (const a of o.audios) a.pause()
+      audio.pause()
       speakBrowser(st.seg, st.gen)
     }
   }
@@ -141,9 +153,9 @@ export function createPlayer(o) {
 
   function halt(state) {
     st.gen++
-    standby = null
+    dropPre()
     if ('speechSynthesis' in window) speechSynthesis.cancel()
-    for (const a of o.audios) a.pause()
+    audio.pause()
     setState(state)
   }
 
@@ -164,25 +176,24 @@ export function createPlayer(o) {
     /** 暂停：服务器音频原地停住；浏览器朗读没有可靠的暂停，继续时从这一段开头重读 */
     pause() {
       if (st.state === 'stopped' || st.state === 'paused') return
-      const a = audio(cur)
-      if (SERVER.includes(st.engine) && st.state === 'playing' && a.src) {
+      if (SERVER.includes(st.engine) && st.state === 'playing' && audio.src) {
         st.gen++
-        const gen = st.gen
-        a.pause()
-        st.resumeGen = gen
+        audio.pause()
+        st.resumeGen = st.gen
+        if (pre) pre.gen = st.gen // 下一段的预载还有用
         setState('paused')
         return
       }
       halt('paused')
     },
     resume() {
-      const a = audio(cur)
-      if (SERVER.includes(st.engine) && st.resumeGen === st.gen && a.src && a.currentTime > 0 && !a.ended) {
+      if (SERVER.includes(st.engine) && st.resumeGen === st.gen && audio.src && audio.currentTime > 0 && !audio.ended) {
         st.gen++
         const gen = st.gen
-        a.onended = () => { if (gen === st.gen && st.state === 'playing') next() }
-        a.playbackRate = st.rate
-        a.play().then(() => { if (gen === st.gen) { setState('playing'); preload(st.seg + 1, gen) } },
+        if (pre) pre.gen = gen
+        audio.onended = () => { if (gen === st.gen && st.state === 'playing') next() }
+        audio.playbackRate = st.rate
+        audio.play().then(() => { if (gen === st.gen) { setState('playing'); if (!pre) preload(st.seg + 1, gen) } },
           () => start(st.seg))
         return
       }
@@ -199,11 +210,12 @@ export function createPlayer(o) {
       st.engine = engine
       st.voice = voice
       if (changed && (st.state === 'playing' || st.state === 'loading')) start(st.seg)
-      else if (changed) { standby = null; st.resumeGen = -1 }
+      else if (changed) { dropPre(); st.resumeGen = -1 }
     },
     setRate(rate) {
       st.rate = rate
-      for (const a of o.audios) a.playbackRate = rate
+      audio.defaultPlaybackRate = rate
+      audio.playbackRate = rate
       // 浏览器朗读的语速只能在下一句生效：重读这一段
       if (st.engine === 'browser' && st.state === 'playing') start(st.seg)
     },
