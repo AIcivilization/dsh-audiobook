@@ -23,6 +23,7 @@ import { createAsr } from '../lib/asr.js'
 import { ensureEdge } from '../lib/edge.js'
 import { dshLlm } from '../lib/llm.js'
 import { findFfmpeg } from '../lib/paths.js'
+import { profilePlugins } from '../lib/targets.js'
 import { createHandler } from '../lib/server.js'
 import { createSpeech } from '../lib/speech.js'
 import { registerTools } from './tools.js'
@@ -114,6 +115,7 @@ export function apply(ctx, config = {}) {
     webSearch,
     asr,
     tools: () => toolRegistry,
+    plugins: () => profilePlugins(profile),
     options: () => ({ ffmpeg: cfg.ffmpeg }),
     status: () => {
       const r = route()

@@ -15,7 +15,7 @@ after(async () => { process.env.HOME = realHome; await rm(home, { recursive: tru
 
 const { importDocument } = await import('../lib/importer.js')
 const N = await import('../lib/notes.js')
-const { detectTargets, sendTo, sinkFields } = await import('../lib/targets.js')
+const { detectTargets, profilePlugins, sendTo, sinkFields } = await import('../lib/targets.js')
 
 /** 假模型：记下收到的提示词，按要求回话 */
 const calls = []
@@ -109,16 +109,27 @@ test('导入：发现假的笔记插件和起居注目录，都能导进去；�
     schemas() { return this.defs.map(({ name, description, parameters }) => ({ name, description, parameters })) },
     get(n) { return this.defs.find(d => d.name === n) },
   }
+  // 只有日记文件夹、profile 里没装 dsh-memex：不出起居注
   await mkdir(join(home, '.dsh', 'memex'), { recursive: true })
-  const targets = detectTargets({ tools })
+  assert.ok(!detectTargets({ tools }).some(t => t.id === 'memex'))
+  const prof = join(home, '.dsh', 'profiles', 'desktop')
+  await mkdir(prof, { recursive: true })
+  await writeFile(join(prof, 'package.json'), JSON.stringify({ dependencies: { 'dsh-pick': '1' }, dsh: { profile: { bundles: ['dsh-pick'] } } }))
+  assert.ok(!detectTargets({ tools, plugins: profilePlugins('desktop') }).some(t => t.id === 'memex'))
+  // 装了 dsh-memex，日记目录按它的配置走
+  await writeFile(join(prof, 'package.json'), JSON.stringify({ dependencies: { 'dsh-memex': '1' }, dsh: { profile: { bundles: ['dsh-memex'] } } }))
+  await writeFile(join(prof, 'cordis.patch.yml'), `- id: dsh-memex\n  config:\n    outputDir: "~/diary"\n`)
+  const plugins = profilePlugins('desktop')
+  assert.equal(plugins.memexDir, join(home, 'diary'))
+  const targets = detectTargets({ tools, plugins })
   const ids = targets.map(t => t.id)
   assert.ok(ids.includes('tool:mynotes_create'))
   assert.ok(ids.includes('memex'))
   const doc = { title: '《书》读书心得', markdown: '# 《书》读书心得\n\n内容', html: '<div>内容</div>' }
   assert.match(await sendTo('tool:mynotes_create', doc, { tools }), /mynotes_create/)
   assert.deepEqual(got[0], { markdown: doc.markdown, title: doc.title })
-  await sendTo('memex', doc, { tools })
-  const file = join(home, '.dsh', 'memex', '读书心得', '《书》读书心得.md')
+  await sendTo('memex', doc, { tools, plugins })
+  const file = join(home, 'diary', '读书心得', '《书》读书心得.md')
   assert.ok(existsSync(file))
   assert.equal(readFileSync(file, 'utf8'), doc.markdown)
   await assert.rejects(sendTo('tool:nope', doc, { tools }), /找不到这个导入位置/)
