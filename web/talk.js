@@ -14,6 +14,41 @@ export function initTalk(d) {
   let notes = [] // 当前这本书的心得
   let reviews = []
   const fmtTime = t => new Date(t).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+  const WEEK = '日一二三四五六'
+  const startOfDay = t => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime() }
+  const hm = t => { const d = new Date(t); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
+  /** 哪一天：今天 / 昨天 / 周三 / 10月18日 / 2025年10月18日 */
+  function dayLabel(t) {
+    const d = new Date(t)
+    const diff = Math.round((startOfDay(Date.now()) - startOfDay(t)) / 86400e3)
+    if (diff === 0) return '今天'
+    if (diff === 1) return '昨天'
+    if (diff > 1 && diff < 7) return `周${WEEK[d.getDay()]}`
+    return d.getFullYear() === new Date().getFullYear() ? `${d.getMonth() + 1}月${d.getDate()}日` : `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`
+  }
+  /** 什么时候：今天 21:05 / 昨天 08:30 / 10月18日 21:05 */
+  const when = t => `${dayLabel(t)} ${hm(t)}`
+  /** 分组用的日子标题：10月18日 周六 · 今天 */
+  function dayHeader(t) {
+    const d = new Date(t)
+    const base = `${d.getFullYear() === new Date().getFullYear() ? '' : `${d.getFullYear()}年`}${d.getMonth() + 1}月${d.getDate()}日 周${WEEK[d.getDay()]}`
+    const rel = dayLabel(t)
+    return rel === '今天' || rel === '昨天' ? `${rel} · ${base}` : base
+  }
+
+  /** 底部提示条，带一个操作按钮（撤销）；返回 dismiss() */
+  function actionToast(text, label, onAction, ms = 5000) {
+    document.querySelector('.toast')?.remove()
+    const el = document.createElement('div')
+    el.className = 'toast with-action'
+    el.innerHTML = `<span>${esc(text)}</span><button class="toast-btn">${esc(label)}</button>`
+    document.body.appendChild(el)
+    let done = false
+    const finish = (acted) => { if (done) return; done = true; clearTimeout(timer); el.remove(); if (acted) onAction() }
+    const timer = setTimeout(() => finish(false), ms)
+    el.querySelector('button').onclick = () => finish(true)
+    return () => finish(false)
+  }
 
   // ———————————————————— 心得的记号 ————————————————————
 
@@ -22,10 +57,23 @@ export function initTalk(d) {
     try { ({ notes, reviews } = await api(`notes?id=${encodeURIComponent(S.book.id)}`)) } catch { notes = []; reviews = [] }
     markNotes()
   }
-  /** 正文里有心得的段落标个记号 */
+  /** 正文里有心得的段落标个记号，段末放一个 💭，点一下看这里记的心得 */
   function markNotes() {
     const segs = new Set(notes.map(n => n.seg))
     for (const el of document.querySelectorAll('#reader span[data-s]')) el.classList.toggle('noted', segs.has(Number(el.dataset.s)))
+    for (const el of document.querySelectorAll('#reader .note-dot')) el.remove()
+    for (const seg of segs) {
+      const spans = document.querySelectorAll(`#reader span[data-s="${seg}"]`)
+      const last = spans[spans.length - 1]
+      if (!last) continue
+      const count = notes.filter(n => n.seg === seg).length
+      const dot = document.createElement('button')
+      dot.className = 'note-dot'
+      dot.title = `这里记了 ${count} 条心得`
+      dot.textContent = count > 1 ? `💭${count}` : '💭'
+      dot.onclick = (e) => { e.stopPropagation(); openNotebook({ focusSeg: seg }) }
+      last.after(dot)
+    }
     const b = $('#t-notes')
     if (b) b.textContent = notes.length ? `心得 ${notes.length}` : '心得'
   }
@@ -138,7 +186,9 @@ export function initTalk(d) {
     const resume = pausePlayer()
     const seg = player.seg
     let talk = null
+    const ch = S.book.chapters.reduce((a, c) => (c.seg <= seg ? c : a), S.book.chapters[0])
     openSheet('记心得', `
+      <div class="faint" style="margin-bottom:6px">${esc(ch ? ch.title : '')} · ${when(Date.now())}</div>
       <div class="quote">${esc(S.segs[seg].replace(/\s+/g, ' ').slice(0, 120))}</div>
       <div class="rec-wrap"><button class="rec" id="n-rec"></button></div>
       <div class="faint center" id="n-st">按住说话，松开就转成文字；也可以直接打字</div>
@@ -160,8 +210,8 @@ export function initTalk(d) {
           const r = await api('note', { id: S.book.id, seg, text, source: area.dataset.voice ? 'voice' : 'typed' })
           notes.push(r.note)
           markNotes()
-          toast('心得记下了')
           done(true)
+          actionToast(`记下了：「${r.note.title}」`, '看心得本', () => openNotebook({ focusId: r.note.id }), 4000)
         } catch (e) { toast(e.message) }
       }
       $('#n-ask').onclick = () => { const q = area.value.trim(); talk.cancel(); openAsk({ preset: q, resume }) }
@@ -302,33 +352,94 @@ export function initTalk(d) {
 
   // ———————————————————— 心得本 ————————————————————
 
-  async function openNotebook() {
+  const SOURCE = { voice: '🎙 语音', typed: '✏️ 打字', ai: '💬 和 AI 聊的' }
+
+  /** 一条心得的卡片（心得本、我的心得共用） */
+  function noteCard(n, { book, hideChapter } = {}) {
+    const showRaw = n.polished && n._raw
+    return `<div class="note" data-id="${esc(n.id)}">
+      <div class="note-head">
+        <div class="note-title" ${book ? '' : `data-title="${esc(n.id)}" title="点一下改标题"`}>${esc(n.title || '一条心得')}</div>
+        <span class="note-when" title="${esc(fmtTime(n.createdAt))}">${esc(book ? hm(n.createdAt) : when(n.createdAt))}</span>
+      </div>
+      <div class="note-sub">${book ? `<span class="tag">《${esc(book)}》</span>` : ''}${hideChapter ? '' : `<span class="tag">${esc(n.chapter || '未分章')}</span>`}<span class="faint">${SOURCE[n.source] || ''}${n.polished ? ' · AI 整理过' : ''}</span></div>
+      <div class="note-text">${esc(showRaw ? n.text : (n.polished || n.text)).replace(/\n/g, '<br>')}</div>
+      <details class="note-quote"><summary>当时听到的原文</summary><div class="quote">${esc(n.quote)}</div>
+        <button class="link-btn" data-jump="${n.seg}" ${book ? `data-book="${esc(n.bookId)}"` : ''}>▶ 跳到这里听</button></details>
+      ${book ? '' : `<div class="note-meta">
+        ${n.polished ? `<button class="link-btn" data-raw="${esc(n.id)}">${showRaw ? '看整理版' : '看原话'}</button>` : `<button class="link-btn" data-polish="${esc(n.id)}">AI 整理</button>`}
+        <button class="link-btn" data-edit="${esc(n.id)}">编辑</button>
+        <span class="grow"></span>
+        <button class="link-btn danger" data-del="${esc(n.id)}">删除</button>
+      </div>`}
+    </div>`
+  }
+
+  /**
+   * @param {{ focusSeg?: number, focusId?: string }} [o] 打开后滚到某一段 / 某一条心得
+   */
+  async function openNotebook(o = {}) {
     if (!S.book) return
     await loadNotes()
     let targets = []
     try { targets = (await api('targets')).targets } catch { /* 没有 */ }
-    openSheet(`心得本 · 《${S.book.title}》`, '<div id="nb"></div>', () => draw())
+    let view = d.local.get('notesView', 'chapter') // chapter：按章节 | time：按时间
+    let query = ''
+    let titling = false
+    openSheet(`心得本 · 《${S.book.title}》`, '<div id="nb"></div>', () => {
+      draw()
+      focus()
+      autoTitles()
+    })
+
+    /** 还是顺手起的标题：请 AI 一次起完，起好了刷新 */
+    async function autoTitles() {
+      if (titling || !notes.some(n => n.titleBy === 'auto')) return
+      let st
+      try { st = await api('status') } catch { return }
+      if (!st.llm) return
+      titling = true
+      draw()
+      try {
+        const r = await api('notes/titles', { id: S.book.id })
+        const raw = new Map(notes.map(n => [n.id, n._raw]))
+        notes = r.notes.map(n => ({ ...n, _raw: raw.get(n.id) }))
+      } catch { /* 留着顺手起的标题 */ }
+      titling = false
+      draw()
+    }
+
+    function focus() {
+      const n = o.focusId ? notes.find(x => x.id === o.focusId) : notes.find(x => x.seg === o.focusSeg)
+      if (!n) return
+      const el = document.querySelector(`#nb .note[data-id="${CSS.escape(n.id)}"]`)
+      if (!el) return
+      el.scrollIntoView({ block: 'center' })
+      el.classList.add('flash')
+      setTimeout(() => el.classList.remove('flash'), 1600)
+    }
 
     function draw() {
       const box = $('#nb')
       if (!box) return
-      const sorted = [...notes].sort((a, b) => a.seg - b.seg || a.createdAt - b.createdAt)
-      let chapter = null
-      const items = sorted.map((n) => {
-        const head = n.chapter !== chapter ? `<div class="group-title">${esc((chapter = n.chapter) || '（未分章）')}</div>` : ''
-        const showRaw = n.polished && n._raw
-        return `${head}<div class="note" data-id="${esc(n.id)}">
-          <div class="quote link-quote" data-jump="${n.seg}" title="跳到这里接着听">${esc(n.quote)}</div>
-          <div class="note-text">${esc(showRaw ? n.text : (n.polished || n.text)).replace(/\n/g, '<br>')}</div>
-          <div class="note-meta">
-            <span class="faint">${fmtTime(n.createdAt)}${n.source === 'voice' ? ' · 语音' : n.source === 'ai' ? ' · 和 AI 的讨论' : ''}${n.polished ? ` · <button class="link-btn" data-raw="${esc(n.id)}">${showRaw ? '看整理版' : '看原话'}</button>` : ''}</span>
-            <span class="grow"></span>
-            ${n.polished ? '' : `<button class="link-btn" data-polish="${esc(n.id)}">AI 整理</button>`}
-            <button class="link-btn" data-edit="${esc(n.id)}">编辑</button>
-            <button class="link-btn danger" data-del="${esc(n.id)}">删除</button>
-          </div>
-        </div>`
-      }).join('')
+      const q = query
+      const shown = notes.filter(n => !q || `${n.title || ''}${n.text}${n.polished || ''}${n.quote}${n.chapter}`.includes(q))
+      let list = ''
+      if (view === 'time') {
+        let day = null
+        list = [...shown].sort((a, b) => b.createdAt - a.createdAt).map((n) => {
+          const h = dayHeader(n.createdAt)
+          const head = h !== day ? `<div class="group-title">${esc(day = h)}</div>` : ''
+          return head + noteCard(n)
+        }).join('')
+      } else {
+        let chapter = null
+        list = [...shown].sort((a, b) => a.seg - b.seg || a.createdAt - b.createdAt).map((n) => {
+          const head = n.chapter !== chapter ? `<div class="group-title">${esc((chapter = n.chapter) || '（未分章）')}</div>` : ''
+          return head + noteCard(n, { hideChapter: true })
+        }).join('')
+      }
+      const latest = notes.length ? Math.max(...notes.map(n => n.createdAt)) : 0
       box.innerHTML = `
         <div class="row nb-actions">
           <button class="btn primary" id="nb-add">🎙 记一条</button>
@@ -337,9 +448,16 @@ export function initTalk(d) {
           <a class="btn" href="notes/export?id=${encodeURIComponent(S.book.id)}" ${notes.length || reviews.length ? '' : 'hidden'}>导出 Markdown</a>
         </div>
         ${targets.length && (notes.length || reviews.length) ? `<div class="row nb-actions"><span class="faint">导入到：</span>${targets.map(t => `<button class="btn small" data-target="${esc(t.id)}" title="${esc(t.detail)}">${esc(t.label)}</button>`).join('')}</div>` : ''}
+        ${notes.length ? `<div class="row nb-bar">
+          <span class="faint grow">${notes.length} 条心得 · 最近一条 ${esc(when(latest))}${titling ? ' · AI 正在起标题…' : ''}</span>
+          <div class="seg-tabs mini"><button data-view="chapter" class="${view === 'chapter' ? 'on' : ''}">按章节</button><button data-view="time" class="${view === 'time' ? 'on' : ''}">按时间</button></div>
+        </div>
+        ${notes.length > 5 ? `<input class="input" id="nb-q" placeholder="在这本书的心得里找" value="${esc(q)}" style="width:100%;margin-bottom:6px">` : ''}` : ''}
         <div class="faint" id="nb-st"></div>
-        ${reviews.map(r => `<div class="review"><div class="row"><b class="grow">读后感 · ${fmtTime(r.createdAt)}</b><button class="link-btn" data-copy="${esc(r.id)}">复制</button><button class="link-btn danger" data-rdel="${esc(r.id)}">删除</button></div><div class="note-text">${esc(r.text.replace(/^#+\s*/gm, '')).replace(/\n/g, '<br>')}</div></div>`).join('')}
-        ${items || '<div class="empty">还没有心得。听书时点 🎙，按住说出你的想法就记下来了。</div>'}`
+        ${reviews.map(r => `<details class="review" ${reviews.length === 1 ? '' : ''}><summary><b>读后感</b> <span class="faint">${esc(when(r.createdAt))}</span></summary>
+          <div class="note-text">${esc(r.text.replace(/^#+\s*/gm, '')).replace(/\n/g, '<br>')}</div>
+          <div class="row"><span class="grow"></span><button class="link-btn" data-copy="${esc(r.id)}">复制</button><button class="link-btn danger" data-rdel="${esc(r.id)}">删除</button></div></details>`).join('')}
+        ${list || (notes.length ? '<div class="empty">没有找到。</div>' : `<div class="empty">还没有心得。<br>听书时有想法，点播放条右边的 🎙，按住说出来就记下了。<br><span class="faint">每条心得会记住当时听到哪儿、哪一天。</span></div>`)}`
       const st = $('#nb-st')
       $('#nb-add').onclick = () => { closeSheet(); openVoiceNote() }
       $('#nb-chat').onclick = () => openAsk({ mode: 'notes', resume: false })
@@ -347,6 +465,9 @@ export function initTalk(d) {
         st.textContent = '正在按你的心得写读后感…（半分钟左右）'
         try { const r = await api('review', { id: S.book.id }); reviews.unshift(r.review); st.textContent = ''; draw() } catch (e) { st.textContent = e.message }
       }
+      for (const b of box.querySelectorAll('[data-view]')) b.onclick = () => { view = b.dataset.view; d.local.set('notesView', view); draw() }
+      const qi = $('#nb-q')
+      if (qi) qi.oninput = () => { query = qi.value.trim(); const pos = qi.selectionStart; draw(); const n = $('#nb-q'); if (n) { n.focus(); n.setSelectionRange(pos, pos) } }
       for (const b of box.querySelectorAll('[data-target]')) {
         b.onclick = async () => {
           b.disabled = true
@@ -357,6 +478,28 @@ export function initTalk(d) {
       }
       for (const b of box.querySelectorAll('[data-jump]')) b.onclick = () => { closeSheet(); d.jumpTo(Number(b.dataset.jump)) }
       const find = id => notes.find(n => n.id === id)
+      // 点标题改标题；清空就交回给 AI 重新起
+      for (const t of box.querySelectorAll('[data-title]')) {
+        t.onclick = () => {
+          const n = find(t.dataset.title)
+          t.outerHTML = `<input class="input title-edit" id="ti" value="${esc(n.title || '')}" placeholder="标题（清空让 AI 起）" maxlength="30">`
+          const inp = $('#ti')
+          inp.focus()
+          inp.select()
+          let saved = false
+          const save = async () => {
+            if (saved) return
+            saved = true
+            const v = inp.value.trim()
+            if (v === n.title) return draw()
+            try { Object.assign(n, (await api('note/edit', { id: S.book.id, note: n.id, title: v })).note) } catch (e) { st.textContent = e.message }
+            draw()
+            if (!v) setTimeout(autoTitles, 300)
+          }
+          inp.onkeydown = (e) => { if (e.key === 'Enter' && !e.isComposing) save(); if (e.key === 'Escape') { saved = true; draw() } }
+          inp.onblur = save
+        }
+      }
       for (const b of box.querySelectorAll('[data-raw]')) b.onclick = () => { const n = find(b.dataset.raw); n._raw = !n._raw; draw() }
       for (const b of box.querySelectorAll('[data-polish]')) {
         b.onclick = async () => {
@@ -373,6 +516,7 @@ export function initTalk(d) {
           el.innerHTML = `<textarea class="input area" rows="4">${esc(editingPolished ? n.polished : n.text)}</textarea>
             <div class="row" style="margin-top:6px"><button class="btn primary small" data-ok>保存</button><button class="btn ghost small" data-no>取消</button>
             <span class="faint">${editingPolished ? '改的是整理版，原话不变' : n.polished ? '改了原话，整理版会删掉' : ''}</span></div>`
+          el.querySelector('textarea').focus()
           el.querySelector('[data-no]').onclick = draw
           el.querySelector('[data-ok]').onclick = async () => {
             const v = el.querySelector('textarea').value
@@ -381,14 +525,23 @@ export function initTalk(d) {
               Object.assign(n, r.note)
               if (!r.note.polished) delete n.polished
               draw()
+              if (n.titleBy === 'auto') setTimeout(autoTitles, 300)
             } catch (e) { st.textContent = e.message }
           }
         }
       }
+      // 删除不用确认：先从列表里拿掉，5 秒内可以撤销，过了才真删
       for (const b of box.querySelectorAll('[data-del]')) {
-        b.onclick = async () => {
-          if (!confirm('删除这条心得？')) return
-          try { await api('note/delete', { id: S.book.id, note: b.dataset.del }); notes = notes.filter(n => n.id !== b.dataset.del); markNotes(); draw() } catch (e) { st.textContent = e.message }
+        b.onclick = () => {
+          const n = find(b.dataset.del)
+          const k = notes.indexOf(n)
+          notes.splice(k, 1)
+          markNotes()
+          draw()
+          actionToast(`删除了「${n.title}」`, '撤销', () => { notes.splice(k, 0, n); markNotes(); draw() })
+          // 按编号核对：这 5 秒里列表可能整个刷新过（AI 起完标题）
+          const bookId = S.book.id
+          setTimeout(() => { if (!notes.some(x => x.id === n.id)) api('note/delete', { id: bookId, note: n.id }).catch(e => toast(e.message)) }, 5200)
         }
       }
       for (const b of box.querySelectorAll('[data-rdel]')) {
@@ -413,28 +566,32 @@ export function initTalk(d) {
     let query = ''
     openSheet('我的心得', `
       <div class="row">
-        <input class="input grow" id="an-q" placeholder="在所有心得里搜">
+        <input class="input grow" id="an-q" placeholder="在所有心得里找（标题、内容、原文）">
         <select class="input" id="an-days">${[[7, '最近 7 天'], [30, '最近 30 天'], [365, '最近一年'], [0, '全部']].map(([v, l]) => `<option value="${v}" ${v === days ? 'selected' : ''}>${l}</option>`).join('')}</select>
-        <button class="btn" id="an-reflect">AI 帮我回顾</button>
       </div>
-      <div class="faint" id="an-st" style="margin-top:6px"></div>
+      <div class="row" style="margin-top:6px"><span class="faint grow" id="an-st"></span><button class="btn" id="an-reflect">AI 帮我回顾</button></div>
       <div id="an-reflection"></div>
       <div id="an-list"><div class="empty">正在读…</div></div>`, () => {
       const load = async () => {
         let list = []
         try { list = (await api(`notes/all?days=${days}&q=${encodeURIComponent(query)}`)).notes } catch (e) { $('#an-list').innerHTML = `<div class="empty">${esc(e.message)}</div>`; return }
-        let book = null
-        $('#an-list').innerHTML = list.length ? list.map(n => `${n.bookTitle !== book ? `<div class="group-title">《${esc(book = n.bookTitle)}》</div>` : ''}
-          <div class="note"><div class="quote link-quote" data-book="${esc(n.bookId)}" data-seg="${n.seg}">${esc(n.chapter)}：${esc(n.quote)}</div>
-          <div class="note-text">${esc(n.polished || n.text).replace(/\n/g, '<br>')}</div><div class="faint">${fmtTime(n.createdAt)}</div></div>`).join('')
-          : '<div class="empty">这段时间没有心得。</div>'
-        for (const q of document.querySelectorAll('#an-list [data-book]')) {
-          q.onclick = async () => {
+        const books = new Set(list.map(n => n.bookId)).size
+        $('#an-st').textContent = list.length ? `${books} 本书，${list.length} 条心得` : ''
+        let day = null
+        $('#an-list').innerHTML = list.length ? list.map((n) => {
+          const h = dayHeader(n.createdAt)
+          const head = h !== day ? `<div class="group-title">${esc(day = h)}</div>` : ''
+          return head + noteCard(n, { book: n.bookTitle })
+        }).join('') : `<div class="empty">${query ? '没有找到。' : '这段时间没有心得。'}</div>`
+        for (const b of document.querySelectorAll('#an-list [data-jump]')) {
+          b.onclick = async () => {
             // 跳到那本书的那个位置
-            try { await api('progress', { id: q.dataset.book, seg: Number(q.dataset.seg) }) } catch { /* 进度没改成也能打开书 */ }
-            d.local.set('pos:' + q.dataset.book, { seg: Number(q.dataset.seg), at: Date.now() })
+            const id = b.dataset.book
+            const seg = Number(b.dataset.jump)
+            try { await api('progress', { id, seg }) } catch { /* 进度没改成也能打开书 */ }
+            d.local.set('pos:' + id, { seg, at: Date.now() })
             closeSheet()
-            location.hash = `#/book/${q.dataset.book}`
+            location.hash = `#/book/${id}`
           }
         }
       }
@@ -443,11 +600,12 @@ export function initTalk(d) {
       $('#an-days').onchange = (e) => { days = Number(e.target.value); d.local.set('notesDays', days); load() }
       $('#an-reflect').onclick = async () => {
         const st = $('#an-st')
+        const before = st.textContent
         st.textContent = '正在回顾…（半分钟左右）'
         try {
           const r = await api('reflect', { days })
-          st.textContent = `回顾了 ${r.books} 本书的 ${r.notes} 条心得`
-          $('#an-reflection').innerHTML = `<div class="review"><div class="note-text">${esc(r.text).replace(/\n/g, '<br>')}</div></div>`
+          st.textContent = before
+          $('#an-reflection').innerHTML = `<div class="review"><div class="row"><b class="grow">AI 回顾 · ${days ? `最近 ${days} 天` : '全部'}（${r.books} 本书、${r.notes} 条心得）</b></div><div class="note-text">${esc(r.text).replace(/\n/g, '<br>')}</div></div>`
         } catch (e) { st.textContent = e.message }
       }
       load()

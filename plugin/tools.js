@@ -242,7 +242,7 @@ export async function buildToolDefinitions() {
   ]
 }
 
-const noteLine = n => `- [${n.bookTitle ? `《${n.bookTitle}》` : ''}${n.chapter}] ${new Date(n.createdAt).toLocaleDateString('zh-CN')} 摘句「${n.quote}」：${n.polished || n.text}`
+const noteLine = n => `- 「${n.title || ''}」${n.bookTitle ? `《${n.bookTitle}》` : ''}[${n.chapter}] ${new Date(n.createdAt).toLocaleDateString('zh-CN')} 摘句「${n.quote}」：${n.polished || n.text}`
 
 /** 读书心得的两个工具：看 / 搜心得，记一条心得 */
 function noteTools() {

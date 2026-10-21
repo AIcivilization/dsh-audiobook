@@ -1,6 +1,6 @@
 {
   "name": "dsh-audiobook",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Turn any book into an audiobook in DSH: search public-domain libraries or import EPUB / PDF / TXT, listen with Edge or system voices, voice-note your thoughts and discuss with AI. · 搜书听：搜书、听书、语音记心得、和 AI 聊书。",
   "keywords": [
     "dsh-plugin",
