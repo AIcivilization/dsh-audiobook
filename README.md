@@ -1,5 +1,10 @@
 # 搜书听 · dsh-audiobook
 
+[![npm version](https://img.shields.io/npm/v/dsh-audiobook.svg?style=flat-square)](https://www.npmjs.com/package/dsh-audiobook)
+[![npm downloads](https://img.shields.io/npm/dm/dsh-audiobook.svg?style=flat-square)](https://www.npmjs.com/package/dsh-audiobook)
+[![license](https://img.shields.io/npm/l/dsh-audiobook.svg?style=flat-square)](LICENSE)
+[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/aicivilization/dsh-audiobook)
+
 **Turn any book into an audiobook inside [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh).**
 Search public-domain libraries (Project Gutenberg, Wikisource, Internet Archive, Standard Ebooks) by title, author, a character's name or a half-remembered plot, or import your own EPUB, PDF, TXT, DOCX or Markdown file, and listen in the sidebar — Microsoft Edge neural voices, offline Kokoro, or your device's own voices; adjustable speed; it remembers where you stopped.
 
@@ -10,6 +15,11 @@ Search public-domain libraries (Project Gutenberg, Wikisource, Internet Archive,
 ```bash
 dsh plugin --profile desktop add dsh-audiobook
 ```
+
+- **能力分类**：工具与能力（有声书朗读 / 读书笔记）
+- **运行要求**：Node.js ≥ 20；DSH web / desktop profile；ffmpeg 可选（装了就把本地语音压成 MP3）
+- **许可证**：[MIT](LICENSE)
+- **数据边界**：书、进度、心得都存在 DSH 所在机器的 `~/.dsh/dsh-audiobook/`；微软 Edge 语音需联网（文字发到微软服务器，README 有说明），浏览器朗读文字不出设备，语音识别用 DSH 自带本地模型（声音不外传）
 
 ## 它做什么
 
@@ -165,3 +175,14 @@ npm test
 - `plugin/` DSH 宿主端（路由、AI 工具、更新卸载）和界面入口（右侧栏、设置）；路由先过 DSH 的 `connection.requestRejection()` 登录校验
 - `lib/asr.js` + `lib/asr-worker.js` 语音输入（本地 SenseVoice 常驻子进程）；`lib/notes.js` 心得、问 AI、读后感、回顾；`lib/targets.js` 发现可导入的知识库并导入
 - `web/` 朗读面板（原生 JS 模块，无构建）：`talk.js` 记心得、问 AI、心得本，`recorder.js` 浏览器录音转 16 kHz WAV，`panel.js` 书库和朗读页，`player.js` 一段接一段地读（始终用同一个 `<audio>`，下一段提前下载进内存：段间几乎不停顿，iPhone 锁屏后也能接着读）
+
+## 许可
+
+[MIT](LICENSE) · Copyright © 2026 AIcivilization
+
+## 收录渠道
+
+- [DSH Plugin Hub（dsh-plugin.org 社区插件市场）](https://dsh-plugin.org/plugins/aicivilization/dsh-audiobook)
+- [awesome-dsh-plugin 精选列表](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
+- dsh-plugin-shop 插件商店（每日自动收录）
+- 52DSH / tuofangzhe 插件目录（证据分级收录）
