@@ -20,6 +20,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createAsr } from '../lib/asr.js'
+import { createExporter } from '../lib/exporter.js'
 import { ensureEdge } from '../lib/edge.js'
 import { dshLlm } from '../lib/llm.js'
 import { findFfmpeg } from '../lib/paths.js'
@@ -89,8 +90,9 @@ export function apply(ctx, config = {}) {
 
   const speech = createSpeech({ ffmpeg: () => findFfmpeg(cfg.ffmpeg), threads: cfg.threads || 2, workers: cfg.workers || 2 })
   const asr = createAsr({ threads: cfg.threads || 2 })
-  // 插件卸载 / DSH 退出：停掉合成、识别子进程
-  const stopAll = () => { speech.stop(); asr.stop() }
+  const exporter = createExporter({ speech, ffmpeg: () => findFfmpeg(cfg.ffmpeg) })
+  // 插件卸载 / DSH 退出：停掉导出、合成、识别子进程
+  const stopAll = () => { exporter.stopAll(); speech.stop(); asr.stop() }
   if (typeof ctx.effect === 'function') ctx.effect(() => stopAll)
   else if (typeof ctx.on === 'function') ctx.on('dispose', stopAll)
 
@@ -114,6 +116,7 @@ export function apply(ctx, config = {}) {
     llm: model,
     webSearch,
     asr,
+    exporter,
     tools: () => toolRegistry,
     plugins: () => profilePlugins(profile),
     options: () => ({ ffmpeg: cfg.ffmpeg }),
@@ -164,7 +167,7 @@ export function apply(ctx, config = {}) {
     if (!tools || typeof tools.register !== 'function') return
     toolRegistry = tools
     if (typeof c.effect === 'function') c.effect(() => () => { if (toolRegistry === tools) toolRegistry = undefined })
-    registerTools(tools, { effect: typeof c.effect === 'function' ? fn => c.effect(fn) : null })
+    registerTools(tools, { exporter, effect: typeof c.effect === 'function' ? fn => c.effect(fn) : null })
       .catch(e => console.warn('[dsh-audiobook] AI 工具注册失败', e))
   })
 }

@@ -167,7 +167,7 @@ window.__ModuleLoader__.load({
       return h('div', { style: { color: C.text } },
         h(HeaderBar),
         h('div', { style: { fontSize: 12.5, color: C.sub, lineHeight: 1.7, marginTop: 6 } },
-          '搜一本书（古腾堡计划、维基文库等公版书源，书名、角色名、情节都能搜），或者导入自己的 TXT、EPUB、PDF、Word，在右侧栏读给你听。听的时候按住说话就能记心得、问 AI。'),
+          '搜一本书（古腾堡计划、维基文库等公版书源，书名、角色名、情节都能搜），或者导入自己的 TXT、EPUB、PDF、Word，在右侧栏读给你听。听的时候按住说话就能记心得、问 AI；也能把整本书转成 MP3（带字幕）下载。'),
         h('div', { style: { marginTop: 14 } },
           !st ? h('div', { style: { fontSize: 12, color: C.sub } }, '正在检查…') : [
             h(Line, { key: 'b', ok: true }, '浏览器朗读：不用安装，用这台设备自带的语音'),

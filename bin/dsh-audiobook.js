@@ -11,6 +11,7 @@
 import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { createAsr } from '../lib/asr.js'
+import { createExporter } from '../lib/exporter.js'
 import { cliLlm } from '../lib/llm.js'
 import { ensureEdge } from '../lib/edge.js'
 import { importDocument } from '../lib/importer.js'
@@ -64,7 +65,8 @@ async function main() {
     const asr = createAsr({ threads: Number(flags.threads) || 2 })
     // 模型：问 AI、整理心得、读后感、搜书猜书名用；没有就这些功能不可用
     const llm = await cliLlm(flags)
-    const handle = createHandler({ prefix: PREFIX, pkgRoot: PKG_ROOT, speech, asr, llm: () => llm, options: () => ({ ffmpeg: flags.ffmpeg }), status: () => ({ host: 'cli' }) })
+    const exporter = createExporter({ speech, ffmpeg: () => findFfmpeg(flags.ffmpeg) })
+    const handle = createHandler({ prefix: PREFIX, pkgRoot: PKG_ROOT, speech, asr, exporter, llm: () => llm, options: () => ({ ffmpeg: flags.ffmpeg }), status: () => ({ host: 'cli' }) })
     const server = createServer((req, res) => {
       if (req.url === '/' || req.url === '') { res.writeHead(302, { location: `${PREFIX}/panel` }); return res.end() }
       if (!String(req.url).startsWith(PREFIX)) { res.writeHead(404); return res.end() }

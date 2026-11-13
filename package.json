@@ -1,7 +1,7 @@
 {
   "name": "dsh-audiobook",
-  "version": "0.6.0",
-  "description": "Turn any book into an audiobook in DSH: search public-domain libraries or import EPUB / PDF / TXT, listen with Edge or system voices, voice-note your thoughts and discuss with AI. · 搜书听：搜书、听书、语音记心得、和 AI 聊书。",
+  "version": "0.7.0",
+  "description": "Turn any book into an audiobook in DSH: search public-domain libraries or import EPUB / PDF / TXT, listen, download as MP3 with subtitles, voice-note your thoughts and discuss with AI. · 搜书听：搜书、听书、转 MP3 下载、语音记心得。",
   "keywords": [
     "dsh-plugin",
     "dsh-plugins",
@@ -37,7 +37,12 @@
     "voice-notes",
     "speech-to-text",
     "读书笔记",
-    "读书心得"
+    "读书心得",
+    "mp3",
+    "export",
+    "lrc",
+    "subtitles",
+    "文本转音频"
   ],
   "license": "MIT",
   "author": "AIcivilization",

@@ -1,4 +1,4 @@
-// plugin/tools.js — 给 DSH 对话里的 AI 用的 8 个工具
+// plugin/tools.js — 给 DSH 对话里的 AI 用的 9 个工具
 //
 // 让用户在对话里说「帮我找那本主角叫贾宝玉的书来听」「把 ~/Downloads/三体.epub 导入搜书听」
 // 「我听到哪了？刚才那段讲了什么」「主角第一次出场在哪」「跳到第十章」，
@@ -297,8 +297,38 @@ ${v.lines.join('\n')}` : `${v.title}：还没有心得` }],
   ]
 }
 
+/** 文字转音频：在对话里说「把第 1 到 3 章转成 MP3」 */
+function exportTools(exporter) {
+  if (!exporter) return []
+  return [{
+    name: 'audiobook_export',
+    description: '把「搜书听」书架里的一本书（或其中几章）转成音频文件（MP3，可附带 LRC / SRT 字幕），在后台生成，做好后在右侧栏「下载音频」里下载。' +
+      '用微软 Edge 或本地离线语音（浏览器朗读的声音没法存成文件）。整本长篇要十几分钟到一两个小时。',
+    parameters: params({
+      id: { type: 'string', description: '书的编号（省略就是最近听的那本）' },
+      from: { type: 'integer', description: '从第几章开始（从 1 数，省略就是第 1 章）' },
+      to: { type: 'integer', description: '到第几章（含，省略就是最后一章）' },
+      engine: { type: 'string', enum: ['edge', 'kokoro'], description: '默认 edge' },
+      voice: { type: 'string', description: '声音编号（省略就用设置里选的）' },
+      split: { type: 'string', enum: ['one', 'chapter'], description: 'one：合成一个 MP3（默认）；chapter：每章一个，打成 ZIP' },
+    }),
+    output: {
+      schema: ANY_OBJECT,
+      render: (_a, v) => [{ type: 'text', text: `已开始把《${v.title}》${v.label}转成音频（${v.voiceLabel}，${v.split === 'chapter' ? '每章一个 MP3，打成 ZIP' : '合成一个 MP3'}）。在后台生成，${OPEN_HINT.replace('。', '')}，点「下载音频」看进度、下载。` }],
+    },
+    async execute(args) {
+      const book = await pickBook(args.id)
+      const engine = args.engine === 'kokoro' ? 'kokoro' : 'edge'
+      const voice = typeof args.voice === 'string' && args.voice ? args.voice : ((await getSettings()).voices[engine] || (engine === 'edge' ? 'zh-CN-YunxiNeural' : 'f01'))
+      const from = Math.max(1, Number.parseInt(args.from, 10) || 1) - 1
+      const to = (Number.parseInt(args.to, 10) || book.chapters.length) - 1
+      return plain(await exporter.start(book.id, { from, to, engine, voice, split: args.split === 'chapter' ? 'chapter' : 'one', subs: true }))
+    },
+  }]
+}
+
 /** 注册工具；有 effect 就交给它管理生命周期 */
 export async function registerTools(tools, deps) {
-  const defs = [...await buildToolDefinitions(deps), ...noteTools()]
+  const defs = [...await buildToolDefinitions(deps), ...noteTools(), ...exportTools(deps.exporter)]
   return defs.map(def => (deps.effect ? deps.effect(() => tools.register(def)) : tools.register(def)))
 }

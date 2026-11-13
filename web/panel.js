@@ -4,6 +4,7 @@
 
 import { createPlayer } from './player.js'
 import { initTalk } from './talk.js'
+import { initExport } from './export.js'
 
 const $ = sel => document.querySelector(sel)
 const app = $('#app')
@@ -88,6 +89,15 @@ const talk = initTalk({
   },
 })
 
+// 文本转音频下载
+const exporter = initExport({
+  api, esc, toast, $, S, local,
+  openSheet: (...a) => openSheet(...a),
+  closeSheet: () => closeSheet(),
+  currentVoice: () => currentVoice(),
+  playerSeg: () => player.seg,
+})
+
 // ———————————————————— 进度 ————————————————————
 
 let saveTimer
@@ -162,6 +172,13 @@ async function showLibrary() {
       </div>
       <div class="faint" id="import-msg" style="margin-top:6px"></div>
     </div>
+    <div class="card feature">
+      <div class="row">
+        <div class="feature-icon">⬇</div>
+        <div class="grow"><b>文本转音频下载</b><div class="faint">把书架上的书转成 MP3（可以只转几章、带字幕），放到手机、MP3、Walkman 里听</div></div>
+        <button class="btn primary" id="tts-go">开始</button>
+      </div>
+    </div>
     <div class="row lib-head"><b class="grow">书架</b><button class="btn" id="all-notes">我的心得</button></div>
     <div id="books"><div class="empty">正在读书库…</div></div>`
   const msg = $('#import-msg')
@@ -195,6 +212,7 @@ async function showLibrary() {
   $('#path').onkeydown = e => { if (e.key === 'Enter') byPath() }
 
   $('#all-notes').onclick = () => talk.openAllNotes()
+  $('#tts-go').onclick = () => exporter.open()
   $('#q-go').onclick = () => runSearch($('#q').value)
   $('#q').onkeydown = e => { if (e.key === 'Enter') runSearch($('#q').value) }
   if (S.lastFound) renderFound(S.lastFound)
@@ -214,7 +232,7 @@ async function loadBooks() {
       <div class="cover">${esc([...b.title][0] || '书')}</div>
       <div class="grow">
         <div class="t">${esc(b.title)}</div>
-        <div class="meta">${esc(b.author ? b.author + ' · ' : '')}${b.listenedAt ? `听到「${esc(b.chapterTitle)}」 · ${b.percent}%` : `${b.chapters} 章 · 约 ${Math.max(1, Math.round(b.chars / 10000))} 万字`} · ${ago(b.listenedAt)}</div>
+        <div class="meta">${esc(b.author ? b.author + ' · ' : '')}${b.listenedAt ? `听到「${esc(b.chapterTitle)}」 · ${b.percent}%` : `${b.chapters} 章 · ${b.chars < 10000 ? `${b.chars} 字` : `约 ${Math.round(b.chars / 10000)} 万字`}`} · ${ago(b.listenedAt)}</div>
         <div class="bar"><i style="width:${b.percent}%"></i></div>
       </div>
       <button class="icon-btn more" data-more="${esc(b.id)}" title="删除、改书名…" aria-label="更多操作">⋯</button>
@@ -304,7 +322,14 @@ function openSources() {
           <button class="btn ghost" data-up="${k}" ${k ? '' : 'disabled'} title="往前挪">↑</button>
           <button class="btn danger" data-del="${k}">删除</button>
         </div>`).join('') || '<div class="faint">没有自定义地址</div>'}</div>
-      <h3 style="margin:16px 0 6px">添加</h3>
+      <h3 style="margin:16px 0 6px">让 AI 帮你加</h3>
+      <div class="row">
+        <input class="input grow" id="ai-url" placeholder="网站地址，比如 book.douban.com">
+        <button class="btn primary" id="ai-go">找搜索方式</button>
+      </div>
+      <div class="faint" id="ai-st" style="margin-top:6px">只要给网站地址：AI 会找出它的搜索地址，并真去搜一次试试，你确认后再加上。</div>
+      <div id="ai-found"></div>
+      <h3 style="margin:16px 0 6px">手动添加</h3>
       <div class="row">
         <input class="input" id="s-name" placeholder="名字，如 豆瓣" style="width:8em">
         <select class="input" id="s-kind"><option value="web">网页</option><option value="opds">OPDS 书库</option></select>
@@ -326,6 +351,34 @@ function openSources() {
       draw()
     }
     $('#s-reset').onclick = () => { list = null; save() }
+    const aiGo = async () => {
+      const url = $('#ai-url').value.trim()
+      if (!url) return
+      const st = $('#ai-st')
+      st.textContent = '正在看这个网站…（几秒到半分钟）'
+      st.style.color = ''
+      $('#ai-found').innerHTML = ''
+      try {
+        const f = (await api('sources/discover', { url })).found
+        st.textContent = ''
+        $('#ai-found').innerHTML = `<div class="card found-src">
+          <div class="row"><input class="input" id="af-name" value="${esc(f.name)}" style="width:9em"><span class="badge">${f.kind === 'opds' ? 'OPDS 书库' : '网页'}</span>
+            <span class="${f.verified ? 'badge ok' : 'badge warn'}">${f.verified ? '已试搜 ✓' : '没验证'}</span></div>
+          <input class="input" id="af-url" value="${esc(f.url)}" style="width:100%;margin-top:6px">
+          <div class="faint" style="margin-top:4px">${esc(f.how)}</div>
+          <div class="row" style="margin-top:8px"><button class="btn primary" id="af-add">加上并保存</button>
+            <a class="link" target="_blank" rel="noopener" href="${esc(f.url.replace('{q}', encodeURIComponent('红楼梦')))}">试搜「红楼梦」看看</a></div>
+        </div>`
+        $('#af-add').onclick = () => {
+          const u = $('#af-url').value.trim()
+          if (!u.includes('{q}')) { st.textContent = '地址里要有 {q}'; return }
+          list.push({ name: $('#af-name').value.trim() || f.name, url: u, kind: f.kind })
+          save()
+        }
+      } catch (e) { st.textContent = e.message; st.style.color = 'var(--bad)' }
+    }
+    $('#ai-go').onclick = aiGo
+    $('#ai-url').onkeydown = (e) => { if (e.key === 'Enter' && !e.isComposing) aiGo() }
     $('#s-save').onclick = () => save()
   }
   const save = async () => {
@@ -391,10 +444,12 @@ function openBookMenu(b) {
       <button class="btn primary" id="m-open">${b.listenedAt ? '继续听' : '开始听'}</button>
       <button class="btn" id="m-save">保存书名和作者</button>
       <button class="btn" id="m-reset" ${b.seg ? '' : 'disabled'}>从头开始</button>
+      <button class="btn" id="m-export">⬇ 转成音频下载</button>
       <span class="grow"></span>
       <button class="btn danger" id="m-del">删除</button>
     </div>`, () => {
     $('#m-open').onclick = () => { closeSheet(); location.hash = `#/book/${b.id}` }
+    $('#m-export').onclick = () => exporter.open(b.id)
     $('#m-save').onclick = async () => {
       try { await api('rename', { id: b.id, title: $('#m-title').value, author: $('#m-author').value }); closeSheet(); loadBooks() } catch (e) { toast(e.message) }
     }
@@ -547,6 +602,7 @@ function mountDock() {
       <button id="t-voice">声音</button>
       <button id="t-rate">语速</button>
       <button id="t-sleep">定时</button>
+      <button id="t-export" title="把这本书转成 MP3 下载">⬇ 音频</button>
     </div></div>`
   document.body.appendChild(dock)
   const range = $('#d-range')
@@ -558,6 +614,7 @@ function mountDock() {
   $('#d-next').onclick = () => step(1)
   $('#t-toc').onclick = openToc
   $('#t-notes').onclick = () => talk.openNotebook()
+  $('#t-export').onclick = () => exporter.open(S.book.id)
   $('#d-ask').onclick = () => talk.openAsk()
   $('#d-note').onclick = () => talk.openVoiceNote()
   $('#t-voice').onclick = openVoice
